@@ -14,12 +14,12 @@ from src.db.tables import DeviceCredential, Inventory
 from src.encryption import decrypt
 from src.inventory import InventoryView, SecurityProfiles
 from src.rollout import inputs
-from src.rollout.address import is_ip, qualify, resolve
+from src.rollout.address import is_ip, is_loopback, qualify, resolve
 from src.rollout.engine import Device
 from src.rollout.session import NetmikoSession
 from src.webapp.app import current_app
 from src.webapp.hooks import signed_in_user
-from src.webapp.http import ok, err, with_json, with_form, flash_redirect, viewer
+from src.webapp.http import ok, err, own_server, with_json, with_form, flash_redirect, viewer
 
 bp = Blueprint('security', __name__, url_prefix='/security')
 
@@ -152,47 +152,63 @@ def security_delete(profile_id: uuid.UUID) -> ResponseReturnValue:
 @login_required
 @with_json()
 def security_test(profile_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
-	"""Sign in with the profile to a device the user sees - their own or a
-	global one (SSH, then disconnect): JSON {device_id}.
+	"""Sign in with the profile (SSH, then disconnect) to a device the user
+	sees - their own or a global one: JSON {device_id}; or to what the device
+	window holds, saved or not: JSON {ip, port, device_type}.
 
-	:returns: ok, or why not - 401 refused, 503 the port unreachable, 504
-	 timed out"""
-	if not data.get("device_id"):
+	:returns: ok, or why not - 400 the window's fields, 401 refused, 503 the
+	 port unreachable, 504 timed out"""
+	device_id = None
+	if "ip" in data:
+		ip = str(data.get("ip") or "").strip()
+		port = str(data.get("port") or "").strip()
+		device_type = str(data.get("device_type") or "").strip()
+		if not ip:
+			return err("Enter the device's IP address or hostname first")
+		if not inputs.validate_address(ip):
+			return err("Not a valid IP address or hostname")
+		if not inputs.validate_port(port):
+			return err("Port must be between 1 and 65535")
+		if not inputs.validate_platform(device_type):
+			return err("Choose the device's platform first")
+		ip = inputs.normalize_address(ip)
+		if is_loopback(ip):
+			return err(own_server(ip))
+		label = ip
+	elif not data.get("device_id"):
 		return err("No device selected", 404)
-
-	try:
-		device_id = uuid.UUID(str(data["device_id"]))
-	except ValueError:
-		return err("Invalid device ID", 422)
+	else:
+		try:
+			device_id = uuid.UUID(str(data["device_id"]))
+		except ValueError:
+			return err("Invalid device ID", 422)
 
 	with current_app.backend.postgres.get_session() as db_session:
 		profile = SecurityProfiles(db_session, viewer()).owned(profile_id)
-		# any device the user sees: it's their own credentials being tried
-		device = InventoryView(db_session, viewer()).get_visible(device_id)
-		if not profile or not device:
-			return err("Profile or device not found", 404)
-		suffix = current_app.web.dns_suffix()
-		host = qualify(device.ip, suffix)
-		if not is_ip(host) and resolve(host) is None:
-			return err(f"Can't resolve {host} from this server", 503)
-		if not inputs.tcp_reachable(host, device.port):
-			return err(f"TCP port {device.port} unreachable on {host}",
-			           503)
-		db_session.expunge_all()
+		if device_id:
+			# any device the user sees: it's their own credentials being tried
+			device = InventoryView(db_session, viewer()).get_visible(device_id)
+			if not profile or not device:
+				return err("Profile or device not found", 404)
+			ip, port, device_type, label = device.ip, str(device.port), device.device_type, device.label
+		elif not profile:
+			return err("Profile not found", 404)
+		username = profile.username
+		password = decrypt(profile.password_secret)
+		secret = decrypt(profile.enable_secret) if profile.enable_secret else ""
 
-	device_obj = Device(ip=device.ip,
-	                    port=device.port,
-	                    device_type=device.device_type,
-	                    label=device.label,
-	                    username=profile.username,
-	                    password=decrypt(profile.password_secret),
-	                    secret=decrypt(profile.enable_secret)
-	                    if profile.enable_secret else "",
-	                    dns_suffix=suffix)
+	suffix = current_app.web.dns_suffix()
+	host = qualify(ip, suffix)
+	if not is_ip(host) and resolve(host) is None:
+		return err(f"Can't resolve {host} from this server", 503)
+	if not inputs.tcp_reachable(host, int(port)):
+		return err(f"TCP port {port} unreachable on {host}", 503)
+	device_obj = Device(ip=ip, port=int(port), device_type=device_type, label=label,
+	                    username=username, password=password, secret=secret, dns_suffix=suffix)
 	try:
 		with NetmikoSession.connect(device_obj):
 			pass
-		return ok(f"Connected successfully to {device.ip}")
+		return ok(f"Connected successfully to {ip}")
 	except NetmikoAuthenticationException:
 		return err("Authentication failed - check username and password", 401)
 	except NetmikoTimeoutException:

@@ -20,7 +20,7 @@ from src.rollout.inputs import InputParser, Validator
 from src.rollout.log import RolloutLogger, Tone
 from src.webapp.app import current_app
 from src.webapp.hooks import signed_in_user
-from src.webapp.http import ok, err, with_form, with_json, flash_redirect, viewer
+from src.webapp.http import ok, err, own_server, with_form, with_json, flash_redirect, viewer
 
 bp = Blueprint('inventory', __name__, url_prefix='/inventory')
 
@@ -161,9 +161,7 @@ def inventory_test_connection(data: dict[str, Any]) -> ResponseReturnValue:
 
 	address = inputs.normalize_address(ip)
 	if is_loopback(address):
-		# what's tested is NetRollout's own server, not the computer typing it
-		return err(f"{address} is NetRollout's own server (in Docker, its container), not "
-		           f"your computer or a device - use the device's name or address on the network")
+		return err(own_server(address))
 	host = qualify(address, current_app.web.dns_suffix())
 	if not is_ip(host) and resolve(host) is None:
 		return err(f"Can't resolve {host} from this server")

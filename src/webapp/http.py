@@ -109,6 +109,13 @@ def err(message: str, code: int = 400, **extra: Any) -> tuple[Response, int]:
 	return jsonify({"status": "error", "message": message, **extra}), code
 
 
+def own_server(address: str) -> str:
+	""":returns: why a loopback address is refused for a device: what's tested
+	 is NetRollout's own server, not the computer typing it"""
+	return (f"{address} is NetRollout's own server (in Docker, its container), not "
+	        f"your computer or a device - use the device's name or address on the network")
+
+
 def require_admin(f: View) -> View:
 	"""Admins only: anyone else gets 403 (JSON / XHR) or is sent back to the
 	page they came from."""

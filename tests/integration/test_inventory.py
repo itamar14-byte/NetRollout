@@ -677,6 +677,18 @@ def test_a_user_can_test_a_global_device_s_connection(world, client_for):
 	resp = client.post("/inventory/test_connection", json={"ip": "127.0.0.1", "port": 22})
 	assert resp.status_code != 403 and "NetRollout's own server" in resp.get_json()["message"]
 
+def test_both_device_windows_offer_test_sign_in_under_the_profile(world, client_for):
+	"""Add and Edit (the read-only window of a global device too) carry Test
+	sign-in right after the security profile select, hidden until a profile is
+	chosen, and not hidden with the editing controls (edit-only)."""
+	html = client_for(world.b).get("/inventory").get_data(as_text=True)
+	for which in ("add", "edit"):
+		box = re.search(rf'id="{which}SecSelect".*?<input type="hidden" name="sec_profile_id" value="">\s*</div>'
+		                rf'\s*<div class="([^"]*)" id="{which}SigninTest" hidden>', html, re.S)
+		assert box and box.group(1).split() == ["signin-test"]
+		assert f"onclick=\"testSignIn('{which}')\"" in html
+
+
 def test_admin_profile_id_never_exposed_to_users(world, client_for):
 	"""The admin profile's id of a global device never appears in a user's inventory
 	page."""

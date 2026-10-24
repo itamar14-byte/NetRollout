@@ -578,3 +578,87 @@ def test_bulk_assign_removes_only_own_bindings(client_for, make_user,
 	# both lists empty is still rejected
 	assert client.post("/mappings/bulk_assign", json={
 		"mapping_id": str(map_a)}).json["status"] == "error"
+
+
+def test_connection_test_of_the_device_windows_fields(client_for, make_user, make_profile):
+	"""The device window's Test sign-in, before the device is saved: {ip, port,
+	device_type} instead of a device id - signs in with the profile at that
+	address, port and type, and answers 200 "Connected successfully to <ip>"."""
+	user = make_user()
+	pid = make_profile(user, username="netops", password="pw")
+	conn = MagicMock()
+	with patch("src.rollout.inputs.tcp_reachable", return_value=True) as reachable, \
+			patch("netmiko.ConnectHandler", return_value=conn) as connect:
+		resp = client_for(user).post(f"/security/{pid}/test", json={
+			"ip": " 10.0.0.9 ", "port": "2222", "device_type": "checkpoint_gaia"})
+	assert resp.status_code == 200
+	assert resp.json["message"] == "Connected successfully to 10.0.0.9"
+	reachable.assert_called_once_with("10.0.0.9", 2222)
+	connect.assert_called_once_with(ip="10.0.0.9", username="netops", password="pw",
+	                                device_type="checkpoint_gaia", port=2222, secret="")
+	conn.disconnect.assert_called_once_with()
+
+
+@pytest.mark.parametrize("fields, message", [
+	({"ip": "", "port": "22", "device_type": "cisco_ios"},
+	 "Enter the device's IP address or hostname first"),
+	({"ip": "   ", "port": "22", "device_type": "cisco_ios"},
+	 "Enter the device's IP address or hostname first"),
+	({"ip": "10.0.0.300", "port": "22", "device_type": "cisco_ios"},
+	 "Not a valid IP address or hostname"),
+	({"ip": "10.0.0.9", "port": "0", "device_type": "cisco_ios"},
+	 "Port must be between 1 and 65535"),
+	({"ip": "10.0.0.9", "port": "22", "device_type": ""}, "Choose the device's platform first"),
+	({"ip": "10.0.0.9", "port": "22", "device_type": "cisco_nope"}, "Choose the device's platform first"),
+])
+def test_connection_test_refuses_the_windows_fields_before_connecting(
+		client_for, make_user, make_profile, fields, message):
+	"""Fields that can't be tested: 400 with what to fix, and nothing is tried."""
+	user = make_user()
+	with patch("src.rollout.inputs.tcp_reachable") as reachable, \
+			patch("netmiko.ConnectHandler") as connect:
+		resp = client_for(user).post(f"/security/{make_profile(user)}/test", json=fields)
+	assert resp.status_code == 400
+	assert resp.json == {"status": "error", "message": message}
+	reachable.assert_not_called()
+	connect.assert_not_called()
+
+
+def test_connection_test_refuses_a_loopback_in_the_windows_fields(client_for, make_user,
+                                                                  make_profile):
+	"""127.0.0.1 is NetRollout's own server, not a device: refused, as Test Connection
+	refuses it."""
+	user = make_user()
+	with patch("netmiko.ConnectHandler") as connect:
+		resp = client_for(user).post(f"/security/{make_profile(user)}/test", json={
+			"ip": "127.0.0.1", "port": "22", "device_type": "cisco_ios"})
+	assert resp.status_code == 400
+	assert resp.json["message"].startswith("127.0.0.1 is NetRollout's own server")
+	connect.assert_not_called()
+
+
+def test_connection_test_of_the_windows_fields_needs_your_own_profile(
+		client_for, make_user, make_profile):
+	"""Another user's profile, or one that doesn't exist: 404 "Profile not found",
+	and nothing is tried - only your own credentials can be tested."""
+	user, other = make_user(), make_user()
+	fields = {"ip": "10.0.0.9", "port": "22", "device_type": "cisco_ios"}
+	with patch("src.rollout.inputs.tcp_reachable", return_value=True), \
+			patch("netmiko.ConnectHandler") as connect:
+		for pid in (make_profile(other), uuid.uuid4()):
+			resp = client_for(user).post(f"/security/{pid}/test", json=fields)
+			assert resp.status_code == 404
+			assert resp.json == {"status": "error", "message": "Profile not found"}
+	connect.assert_not_called()
+
+
+def test_connection_test_of_the_windows_fields_wrong_credentials(client_for, make_user,
+                                                                 make_profile):
+	"""The profile refused at that address: 401, as for a saved device."""
+	user = make_user()
+	with patch("src.rollout.inputs.tcp_reachable", return_value=True), \
+			patch("netmiko.ConnectHandler", side_effect=netmiko.NetMikoAuthenticationException("no")):
+		resp = client_for(user).post(f"/security/{make_profile(user)}/test", json={
+			"ip": "10.0.0.9", "port": "22", "device_type": "cisco_ios"})
+	assert resp.status_code == 401
+	assert resp.json["message"] == "Authentication failed - check username and password"

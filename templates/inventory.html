@@ -381,6 +381,9 @@
     overflow-wrap: anywhere;
 }
 .modal-footer .btn { white-space: nowrap; }
+/* Test sign-in under a device's security profile: the button, then its result */
+.signin-test { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; margin-top: 0.5rem; }
+.signin-test[hidden] { display: none; }
 .conn-status.conn-ok {
     background: rgba(165,214,167,0.1);
     border: 1px solid rgba(165,214,167,0.25);
@@ -768,6 +771,13 @@
                             </div>
                             <input type="hidden" name="sec_profile_id" value="">
                         </div>
+                        <div class="signin-test" id="addSigninTest" hidden>
+                            <button type="button" class="btn btn-secondary btn-sm" id="addSigninBtn"
+                                    onclick="testSignIn('add')">
+                                <i class="bi bi-key me-1"></i>Test sign-in
+                            </button>
+                            <div id="addSigninStatus" class="conn-status" style="display:none;"></div>
+                        </div>
                     </div>
 
                     {% if is_admin %}
@@ -911,6 +921,13 @@
                                 </div>
                             </div>
                             <input type="hidden" name="sec_profile_id" value="">
+                        </div>
+                        <div class="signin-test" id="editSigninTest" hidden>
+                            <button type="button" class="btn btn-secondary btn-sm" id="editSigninBtn"
+                                    onclick="testSignIn('edit')">
+                                <i class="bi bi-key me-1"></i>Test sign-in
+                            </button>
+                            <div id="editSigninStatus" class="conn-status" style="display:none;"></div>
                         </div>
                     </div>
 
@@ -1329,7 +1346,7 @@ const QCM_LIST_PROPS = new Set({{ (sys_props + user_props) | selectattr('is_list
 // ════════════════════════════════════════
 //  NrSelect - custom dropdown widget
 // ════════════════════════════════════════
-function initNrSelect(containerId) {
+function initNrSelect(containerId, onChange) {
     const container = document.getElementById(containerId);
     if (!container) return null;
 
@@ -1357,6 +1374,7 @@ function initNrSelect(containerId) {
         renderDisplay(label || '');
         liveOptions().forEach(o => o.classList.toggle('selected', o.dataset.value === value));
         shell.close();
+        if (onChange) onChange(value);
     }
 
     function filterOptions(q) {
@@ -1396,8 +1414,69 @@ function initNrSelect(containerId) {
 }
 
 // Init security profile selects
-const addSecSelect  = initNrSelect('addSecSelect');
-let   editSecSelect = initNrSelect('editSecSelect');
+const addSecSelect  = initNrSelect('addSecSelect',  () => resetSignIn('add'));
+let   editSecSelect = initNrSelect('editSecSelect', () => resetSignIn('edit'));
+
+// ════════════════════════════════════════
+//  Test sign-in - the selected profile on what the window holds now
+// ════════════════════════════════════════
+// Shown while a profile is selected; tries an SSH sign-in with it at the
+// window's address, port and platform, saved or not (/security/<id>/test).
+function signInParts(which) {
+    return {
+        profile: (which === 'add' ? addSecSelect : editSecSelect).getValue(),
+        box:     document.getElementById(which + 'SigninTest'),
+        btn:     document.getElementById(which + 'SigninBtn'),
+        status:  document.getElementById(which + 'SigninStatus'),
+        ip:      document.getElementById(which + 'DevIp').value.trim(),
+        port:    document.getElementById(which + 'DevPort').value.trim(),
+        type:    document.getElementById(which + 'DevTypeHidden').value,
+    };
+}
+
+function showSignIn(status, ok, message) {
+    status.style.display = '';
+    status.className = 'conn-status ' + (ok ? 'conn-ok' : 'conn-fail');
+    status.innerHTML = '<i class="bi bi-' + (ok ? 'check' : 'x') + '-circle-fill"></i>' + nrEscape(message);
+}
+
+function resetSignIn(which) {
+    const box = document.getElementById(which + 'SigninTest');
+    if (!box) return;
+    const parts = signInParts(which);
+    box.hidden = !parts.profile;
+    parts.status.style.display = 'none';
+    parts.status.textContent = '';
+}
+
+async function testSignIn(which) {
+    const parts = signInParts(which);
+    if (!parts.profile) return;
+    if (!parts.ip) {
+        showSignIn(parts.status, false, "Enter the device's IP address or hostname first");
+        return;
+    }
+    parts.btn.disabled = true;
+    parts.btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Signing in…';
+    parts.status.style.display = 'none';
+    try {
+        const resp = await fetch('/security/' + encodeURIComponent(parts.profile) + '/test', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+            body:    JSON.stringify({ ip: parts.ip, port: parts.port, device_type: parts.type })
+        });
+        const data = await resp.json();
+        showSignIn(parts.status, data.status === 'ok', data.message || 'The test failed');
+    } catch (_) {
+        showSignIn(parts.status, false, 'Network error');
+    }
+    parts.btn.disabled = false;
+    parts.btn.innerHTML = '<i class="bi bi-key me-1"></i>Test sign-in';
+}
+['add', 'edit'].forEach(which => {
+    ['DevIp', 'DevPort'].forEach(field => document.getElementById(which + field)
+        .addEventListener('input', () => resetSignIn(which)));
+});
 
 // ════════════════════════════════════════
 //  Platform NrSelect
