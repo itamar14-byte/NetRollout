@@ -1312,6 +1312,12 @@ async function _renderVerifyDiff(device, activeTab) {
         list.appendChild(_el('div', 'vf-note', 'Another person, or the device itself, during the rollout.'));
         other.forEach(line => list.appendChild(_evidenceLine(line)));
     }
+    // an empty diff: read before and after, and nothing changed (every
+    // command already in place, or none took effect)
+    if (data.diff === '') {
+        list.appendChild(_el('div', 'vf-section', 'The configuration, before → after'));
+        list.appendChild(_el('div', 'vf-note', 'Unchanged: the push added and removed nothing.'));
+    }
     if (data.diff) {
         const details = _el('details');
         const summary = _el('summary', 'vf-section', 'The configuration, before → after');

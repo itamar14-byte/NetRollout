@@ -744,6 +744,23 @@ def test_config_diff_returns_the_rollouts_own_verdicts(operator, client_for,
 	assert resp.json["diff"] == "+interface Loopback98"
 
 
+def test_an_unchanged_push_says_so_in_its_verification(operator, client_for, session_scope):
+	"""A verified push that changed nothing (every command already in place)
+	keeps an empty diff - not none: the Verification window tells it from a
+	diff that's gone and says "Unchanged" instead of leaving the section out."""
+	job = uuid.uuid4()
+	transcript = {"commands": [{"command": "set snmp location nr-web", "verdict": "already in place",
+	                            "evidence": ["  set snmp location nr-web"], "note": "", "reply": []}],
+	              "other_changes": []}
+	add_result(session_scope, operator.user, job, status="success", verified=1,
+	           commands=["set snmp location nr-web"], transcript=transcript, diff="")
+	client = client_for(operator.user)
+	resp = client.get(f"/results/config_diff/{job}/10.0.0.1")
+	assert resp.status_code == 200 and resp.json["diff"] == ""
+	page = client.get("/results").get_data(as_text=True)
+	assert "if (data.diff === '')" in page and "Unchanged: the push added and removed nothing." in page
+
+
 def test_results_page_shows_what_needs_a_person(operator, client_for,
                                                 session_scope):
 	"""A device needing a person shows on Results without reading the log: one
