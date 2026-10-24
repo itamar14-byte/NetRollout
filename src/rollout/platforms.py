@@ -794,8 +794,9 @@ PLATFORMS: dict[str, Platform] = {
 		about={"left_out": "nothing (# header)",
 		       "saved": "save config; show config-state's last line = saved; never enable() (the expert shell)",
 		       "layout": "flat set / add lines", "events": "Broadcast message from …"},
-		sources={"read": "doc", "left_out": "doc", "saved": "doc", "layout": "doc", "navigation": "doc",
-		         "removal": "doc", "exec": "doc", "defaults": "doc", "events": "inferred"}),
+		# lab: CP1, Gaia R81.20 (2026-10-24), clish and expert (bash) login shells
+		sources={"read": "lab", "left_out": "lab", "saved": "lab", "layout": "lab", "navigation": "lab",
+		         "removal": "lab", "exec": "lab", "defaults": "doc", "events": "inferred"}),
 	# Netmiko sets the console output to "standard" for the session (when it
 	# was "more") and puts it back at logout - the same in both reads
 	"fortinet": FortiOS(

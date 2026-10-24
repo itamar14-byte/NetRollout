@@ -1,5 +1,5 @@
 """The judge on the whole lab corpus (tests/unit/rollout/lab: R1 IOS 12.4,
-NXOS1 NX-OS 7.3, FGT1 FortiOS 7.2, PA1 PAN-OS 11.2, JS1 vJunos 24.4, XR1 IOS-XR 7.1), judged as a push session judges: what
+NXOS1 NX-OS 7.3, FGT1 FortiOS 7.2, PA1 PAN-OS 11.2, JS1 vJunos 24.4, XR1 IOS-XR 7.1, CP1 Gaia R81.20), judged as a push session judges: what
 the device said told apart by the platform's shapes, its exec words, and
 its configuration shown with defaults where the case recorded it.
 
@@ -32,6 +32,7 @@ KNOWN_FALSE_REJECTIONS = {
 	("FGT1/delete-absent", "delete nr-absent"),
 	("PA1/delete-absent", "delete address nr-b2-none"),     # "Object doesn't exist"
 	("JS1/delete-absent", "delete snmp contact"),           # "statement not found"
+	("CP1/delete-absent", "delete host name nr-none ipv4"),  # "not present, delete failed"
 	# recorded without the defaults view, which proves it (FGT1/defaults-same-warning)
 	("FGT1/hidden-default-same", "set admin-sport 443"),
 }
@@ -147,3 +148,13 @@ def test_proven_by_defaults_negation_or_a_kept_negation(case, command, evidence,
 	_, outcome, _ = judged(LAB / f"{case}.json.gz")
 	j = next(j for j in outcome.commands if j.command == command)
 	assert j.verdict in ACCEPTED and j.evidence == (evidence,) and j.note == note
+
+
+@pytest.mark.xfail(strict=True, reason="known bug: Gaia's delete names ipv4 where its line says ipv4-address - "
+                                       "the removed line isn't matched, so the removal reads as already absent")
+@pytest.mark.parametrize("case, command", [
+	("CP1/delete", "delete host name nrlab ipv4"),
+	("CP1/cleanup", "delete host name nrexec ipv4"),
+	("CP1/expert-shell-cleanup", "delete host name nrexp ipv4")])
+def test_a_removal_that_removed_its_line_is_judged_removed(case, command):
+	assert [v for c, cmd, _, v, _, _ in ROWS if (c, cmd) == (case, command)] == [Verdict.REMOVED]

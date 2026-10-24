@@ -515,7 +515,7 @@ Administrators can choose **VIEW AS** to see another user's numbers.
 | `hp_comware` | HP Comware | Saves the configuration | none | `display`, `save`, `ping`, `tracert` |
 | `juniper_junos` | Juniper JunOS | Commits, in `configure private`, when the candidate holds a change (shown by its compare); a failed commit is discarded with `rollback 0`. Verified on vJunos 24.4. | none | `run`, `show`, `status`, `help`, `save` |
 | `paloalto_panos` | Palo Alto PAN-OS | Commits, when the candidate holds a change (`show config diff`); a failed commit is discarded with `revert config`. Verified on PAN-OS 11.2. | none | `run`, `show`, `check`, `validate`, `find`, `save` |
-| `checkpoint_gaia` | Check Point Gaia | Runs `save config` (in clish) | none | `show`, `lock`, `unlock`, `save` |
+| `checkpoint_gaia` | Check Point Gaia | Runs `save config` (in clish; an account whose shell is expert mode is switched to clish first). Verified on Gaia R81.20. | none | `show`, `lock`, `unlock`, `save` |
 | `fortinet` | Fortinet FortiOS | Nothing to save: changes are live. NetRollout closes any `config` block left open. | `show full-configuration <section>` | `get`, `show`, `execute`, `diagnose`, `tree`, `sudo`, `fnsysctl` |
 
 **Defaults read with**: how NetRollout reads the configuration with its default values, for the commands the plain configuration doesn't show - only when such a command is left; *none*: the platform has no documented way, and those commands stay in review. Verified on IOS 12.4, NX-OS 7.3 and FortiOS 7.2; EOS and AOS-CX from their documentation (AOS-CX: "all: Shows all default values for the current running configuration").
