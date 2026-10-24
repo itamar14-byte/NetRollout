@@ -6,7 +6,7 @@ import re
 import threading
 import uuid
 from pathlib import Path
-from unittest.mock import MagicMock, call, patch
+from unittest.mock import DEFAULT, MagicMock, call, patch
 
 import netmiko
 import pytest
@@ -200,26 +200,64 @@ def push(device_type, conn, commands=("hostname x",), logger=None):
 	return results[0]
 
 
+PENDING = {"show | compare", "run show config diff"}     # Commit.pending of Junos, PAN-OS
+DISCARDS = {"rollback 0", "revert config", "load config from running-config.xml"}
+
+
 def connection(prompt="r1#", vdoms=False, cfg_save="automatic"):
 	"""A mocked Netmiko connection: accepts every command, shows `prompt`, FortiOS's
-	VDOM flag and cfg-save mode."""
+	VDOM flag and cfg-save mode. Its candidate is a commit platform's: a pushed
+	command leaves it pending (the pending command shows a change), a discard empties it,
+	and so does a "commit" sent as a command (PAN-OS's commit, Commit.by_pending)."""
 	conn = MagicMock()
-	conn.send_config_set.side_effect = lambda commands, **_: f"{commands[0]}\n{prompt}"
+	candidate = []
+
+	def send(commands, **_):
+		command = commands[0]
+		if command in PENDING:
+			return "\n".join([command, *(f"+ {c}" for c in candidate), prompt])
+		if command in DISCARDS:
+			candidate.clear()
+		else:
+			candidate.append(command)
+		return f"{command}\n{prompt}"
+
+	def command(command_string, **_):
+		if command_string == "commit":
+			candidate.clear()
+			return "commit\nConfiguration committed successfully\n" + prompt
+		return DEFAULT
+	conn.send_config_set.side_effect = send
+	conn.send_command.side_effect = command
 	conn.base_prompt = prompt.rstrip("#> ")
 	conn.find_prompt.return_value = prompt
 	conn._vdoms = vdoms                        # Netmiko's FortiOS VDOM flag
 	conn.send_command_timing.side_effect = lambda cmd: (
 		f"cfg-save            : {cfg_save}" if "cfg-save" in cmd else "")
+	conn.candidate = candidate                 # for a test's own send_command
 	return conn
+
+
+def panos_commit(conn, outcome):
+	"""PAN-OS commits by sending "commit" (Commit.by_pending): make it fail (the
+	candidate keeps the change, the reply says why) or time out (no prompt)."""
+	def command(command_string, **_):
+		if command_string != "commit":
+			return DEFAULT
+		if outcome == "fails":
+			return "commit\nValidation Error:\n rulebase -> security -> rules is invalid\nr1#"
+		raise netmiko.exceptions.ReadTimeout("slow")
+	conn.send_command.side_effect = command
 
 
 def finish_calls(conn):
 	"""The calls that finish the push (commit, save, leaving config mode, sends): those
 	after the pushed command (before it, the session's preparation - IOS-XR's and
-	PAN-OS's send commands of their own)."""
-	pushed = call.send_config_set(["hostname x"], enter_config_mode=False, exit_config_mode=False)
+	PAN-OS's send commands of their own). The pushed command is found by its
+	command, whatever options it was sent with (Junos: cmd_verify off)."""
 	calls = conn.method_calls
-	after = calls[calls.index(pushed) + 1:] if pushed in calls else calls
+	pushed = [n for n, c in enumerate(calls) if c[0] == "send_config_set" and c.args == (["hostname x"],)]
+	after = calls[pushed[0] + 1:] if pushed else calls
 	return [c for c in after
 	        if c[0] in ("commit", "exit_config_mode", "save_config",
 	                    "send_command", "send_config_set", "send_command_timing")]
@@ -248,13 +286,37 @@ def test_aruba_cx_leaves_sub_contexts_before_saving():
 	assert names.index("send_command_timing") < names.index("save_config")
 
 
-@pytest.mark.parametrize("device_type", ["juniper_junos", "paloalto_panos",
-                                         "cisco_xr"])
-def test_commit_platforms_commit_before_leaving_config_mode(device_type):
-	"""Junos, PAN-OS and IOS XR commit (with the commit timeout), then leave config mode."""
+@pytest.mark.parametrize("device_type, pending", [("juniper_junos", "show | compare"),
+                                                  ("paloalto_panos", "run show config diff"),
+                                                  ("cisco_xr", None)])
+def test_commit_platforms_commit_before_leaving_config_mode(device_type, pending):
+	"""Junos, PAN-OS and IOS XR commit (with the commit timeout), then leave config mode -
+	Junos and PAN-OS once their pending command shows a change in the candidate."""
 	conn = connection()
 	assert push(device_type, conn).applied
-	assert finish_calls(conn) == [call.commit(read_timeout=COMMIT_TIMEOUT), call.exit_config_mode()]
+	asked = [call.send_config_set([pending], exit_config_mode=False)] if pending else []
+	if device_type == "paloalto_panos":     # sent as "commit", then the candidate read again
+		commit = [call.send_command("commit", expect_string=r"r1[#>]", read_timeout=COMMIT_TIMEOUT),
+		          *asked]
+	else:
+		commit = [call.commit(read_timeout=COMMIT_TIMEOUT)]
+	assert finish_calls(conn) == [*asked, *commit, call.exit_config_mode()]
+
+
+@pytest.mark.parametrize("device_type, pending", [("juniper_junos", "show | compare"),
+                                                  ("paloalto_panos", "run show config diff")])
+def test_nothing_pending_is_not_committed(device_type, pending):
+	"""A candidate with nothing in it (every command refused) isn't committed: PAN-OS's
+	commit() would wait out the commit timeout for a progress bar that never comes, and
+	report a commit that never finished. The log says nothing was committed; the push
+	goes on to be judged (applied: its commands' verdicts decide)."""
+	conn = connection()
+	conn.send_config_set.side_effect = lambda cmds, **kw: f"{cmds[0]}\n% Invalid input\nr1#" \
+		if cmds[0] != pending else f"{pending}\nr1#"
+	logger = fresh_logger()
+	assert push(device_type, conn, logger=logger).applied
+	conn.commit.assert_not_called()
+	assert f"nothing to commit - '{pending}' shows no change in the candidate" in log_of(logger)
 
 
 def test_junos_failed_commit_rolls_back_and_reports_not_applied():
@@ -265,6 +327,7 @@ def test_junos_failed_commit_rolls_back_and_reports_not_applied():
 	result = push("juniper_junos", conn)
 	assert not result.applied
 	assert finish_calls(conn) == [
+		call.send_config_set(["show | compare"], exit_config_mode=False),
 		call.commit(read_timeout=COMMIT_TIMEOUT),
 		call.send_config_set(["rollback 0"], exit_config_mode=False),
 		call.send_config_set(["show | compare"], exit_config_mode=False),
@@ -277,9 +340,16 @@ def test_a_discard_that_leaves_nothing_pending_needs_no_person():
 	ACTION NEEDED, and the log says so with the discard's reply."""
 	conn = connection(prompt="u@j1#")
 	conn.commit.side_effect = ValueError("Commit failed")
-	conn.send_config_set.side_effect = lambda cmds, **kw: (
-		"show | compare\n\n[edit]\nu@j1# " if cmds == ["show | compare"]
-		else "load complete\n\n[edit]\nu@j1# " if cmds == ["rollback 0"] else "ok")
+	discarded = []      # the candidate holds the push until `rollback 0`
+
+	def answer(cmds, **kw):
+		if cmds == ["show | compare"]:
+			return "show | compare\n\n[edit]\nu@j1# " if discarded else "show | compare\n+ x\nu@j1# "
+		if cmds == ["rollback 0"]:
+			discarded.append(True)
+			return "load complete\n\n[edit]\nu@j1# "
+		return "ok"
+	conn.send_config_set.side_effect = answer
 	logger = fresh_logger()
 	assert not push("juniper_junos", conn, logger=logger).applied
 	log = log_of(logger)
@@ -318,12 +388,29 @@ def test_panos_failed_commit_reverts_the_candidate():
 	"""A failed PAN-OS commit sends `revert config`; when that works the log doesn't say
 	the changes may still be in the candidate."""
 	conn = connection()
-	conn.commit.side_effect = ValueError("Commit failed")
+	panos_commit(conn, "fails")
 	logger = fresh_logger()
 	assert not push("paloalto_panos", conn, logger=logger).applied
 	assert call.send_config_set(["revert config"], exit_config_mode=False) \
 	       in conn.method_calls
 	assert "still be in the candidate" not in log_of(logger)
+
+
+def test_a_failed_panos_commit_is_told_by_the_candidate_in_seconds():
+	"""PAN-OS's commit is sent as "commit" and judged by the candidate after it, not by
+	Netmiko's commit() (which waits for a "100%" a failed commit never prints): the
+	change still pending = failed, the reply the reason, discarded at once - never a
+	commit "still running"."""
+	conn = connection()
+	panos_commit(conn, "fails")
+	logger = fresh_logger()
+	assert not push("paloalto_panos", conn, logger=logger).applied
+	conn.commit.assert_not_called()
+	log = log_of(logger)
+	assert "commit failed - nothing was applied. Validation Error: | rulebase -> security " \
+	       "-> rules is invalid" in log
+	assert "didn't finish" not in log
+	assert "'run show config diff' shows nothing left in the candidate" in log
 
 
 def test_xr_failed_commit_needs_no_discard_and_no_warning():
@@ -571,7 +658,7 @@ def test_a_commit_that_outlasts_the_wait_is_reported_honestly():
 	"""A commit that times out is not applied, the log says it didn't finish within the
 	wait, and the session is closed."""
 	conn = connection()
-	conn.commit.side_effect = netmiko.exceptions.ReadTimeout("slow")
+	panos_commit(conn, "times out")
 	logger = fresh_logger()
 	assert not push("paloalto_panos", conn, logger=logger).applied
 	with open(logger.logfile, encoding="utf-8") as f:
@@ -605,10 +692,15 @@ def test_the_whole_rollout_on_each_platform(device_type, under, line, commands, 
 	conn = connection(prompt={"fortinet": "fw1 #",
 	                          "checkpoint_gaia": "gw-1>"}.get(device_type, "r1#"))
 	reads = iter([before] * len(platform.show_config) + [after] * 20)
-	conn.send_command.side_effect = lambda command, **_: (
-		"" if command in PREPARATION.get(device_type, ()) else
-		"saved" if command == "show config-state" else
-		after if command == platform.show_saved else next(reads))
+
+	def command(command_string, **_):
+		if command_string == "commit":              # PAN-OS's commit: the candidate empties
+			conn.candidate.clear()
+			return "Configuration committed successfully"
+		return ("" if command_string in PREPARATION.get(device_type, ()) else
+		        "saved" if command_string == "show config-state" else
+		        after if command_string == platform.show_saved else next(reads))
+	conn.send_command.side_effect = command
 	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
 	                device_type=device_type, secret="", port=2222)
 	engine = RolloutEngine(RolloutOptions(verify=True), [device], commands)
@@ -622,7 +714,9 @@ def test_the_whole_rollout_on_each_platform(device_type, under, line, commands, 
 	shown = [c.args[0] for c in conn.send_command.call_args_list
 	         if c.args and c.args[0] in platform.show_config]
 	assert shown == list(platform.show_config) * 2       # before and after
-	assert conn.commit.called == isinstance(platform.finish, Commit)
+	committed = conn.commit.called or call.send_command("commit") in [
+		call(c.args[0]) for c in conn.send_command.call_args_list if c.args]
+	assert committed == isinstance(platform.finish, Commit)
 	assert conn.save_config.called == isinstance(platform.finish, SaveConfig)
 	assert result["action_needed"] is None               # saved, as checked
 
@@ -818,7 +912,7 @@ def test_a_new_hostname_after_a_refusal_keeps_the_reply():
 	                   __import__("netmiko").exceptions.ReadTimeout("x")),
 	 "uncommitted changes in the shared configuration"),
 	("paloalto_panos",         # failed commit, both discards refused
-	 lambda c: (setattr(c.commit, "side_effect", ValueError("Commit failed")),
+	 lambda c: (panos_commit(c, "fails"),
 	            setattr(c.send_config_set, "side_effect",
 	                    lambda cmds, **kw: "Unknown command"
 	                    if cmds[0] in ("revert config",
@@ -826,8 +920,7 @@ def test_a_new_hostname_after_a_refusal_keeps_the_reply():
 	                    else "ok")),
 	 "check the candidate configuration on the device"),
 	("paloalto_panos",         # commit still running after the wait
-	 lambda c: setattr(c.commit, "side_effect",
-	                   __import__("netmiko").exceptions.ReadTimeout("slow")),
+	 lambda c: panos_commit(c, "times out"),
 	 "check on the device"),
 	("checkpoint_gaia",        # stuck in expert even after "clish"
 	 lambda c: setattr(c.find_prompt, "return_value", "[Expert@gw-1:0]#"),
@@ -1416,15 +1509,19 @@ def test_every_platform_fills_its_row_with_a_source_for_each_column():
 
 def test_panos_reads_set_lines_in_configure_mode():
 	"""The session's output format set once at the start, then each read in
-	configure mode - "show", then out again; its [edit] banner left out."""
+	configure mode - "show" (and a look for output still coming: read_whole), then
+	out again; its [edit] banner left out."""
 	conn = MagicMock()
 	conn.send_command.side_effect = lambda command, **_: (
 		"[edit]\nset deviceconfig system hostname fw1\n[edit]" if command == "show" else "")
+	conn.read_channel.return_value = ""
 	panos = PLATFORMS["paloalto_panos"]
 	assert panos.prepare(conn) is None
 	assert panos.read_config(conn) == "set deviceconfig system hostname fw1"
-	assert conn.method_calls == [call.send_command("set cli config-output-format set"), call.config_mode(),
-	                             call.send_command("show", read_timeout=FETCH_TIMEOUT), call.exit_config_mode()]
+	assert conn.method_calls[:3] == [call.send_command("set cli config-output-format set"), call.config_mode(),
+	                                 call.send_command("show", read_timeout=FETCH_TIMEOUT)]
+	assert {c[0] for c in conn.method_calls[3:-1]} == {"read_channel"}
+	assert conn.method_calls[-1] == call.exit_config_mode()
 
 
 def test_panos_leaves_configure_mode_even_when_the_read_fails():
@@ -1503,3 +1600,98 @@ def test_a_progress_bar_is_not_a_reply():
 def test_only_a_bars_shape_is_a_progress_frame(line):
 	"""Anything else stays an answer."""
 	assert not PROGRESS.match(line)
+
+
+# ── Device messages mid-session (syslog, broadcasts): a redrawn prompt ──────
+
+def channel(*chunks):
+	""":returns: a read_channel answer: these chunks, then nothing"""
+	queue = list(chunks)
+	return lambda: queue.pop(0) if queue else ""
+
+
+def test_a_read_cut_short_by_a_redrawn_prompt_is_read_whole():
+	"""A message makes the device redraw its prompt in the middle of a configuration
+	read; Netmiko's read ends there. The rest that still comes is read too and joined -
+	the redrawn prompt left out - so a truncated configuration is never what's judged."""
+	conn = MagicMock(base_prompt="u@j1")
+	conn.send_command.return_value = "set system host-name j1\nAuto Image Upgrade: DHCP reset"
+	conn.read_channel.side_effect = channel("\nu@j1> ", "set snmp location lab\n", "u@j1> ")
+	config = PLATFORMS["juniper_junos"].read_config(conn)
+	assert config.splitlines() == ["set system host-name j1", "Auto Image Upgrade: DHCP reset",
+	                               "set snmp location lab"]
+
+
+def test_an_empty_configuration_read_is_never_judged():
+	"""No device has an empty configuration: a read that comes back empty leaves the
+	device not verified, said in the log - never judged as "nothing configured"."""
+	conn = connection()
+	conn.send_command.side_effect = lambda command, **_: ""
+	logger = fresh_logger()
+	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
+	                device_type="cisco_ios", secret="", port=22)
+	with patch("netmiko.ConnectHandler", return_value=conn):
+		(result,) = RolloutEngine(RolloutOptions(verify=True), [device],
+		                          ["snmp-server location x"]).run(threading.Event(), logger)
+	assert result["status"] == "not verified"
+	assert "the configuration read before the push came back empty - not verified" in log_of(logger)
+
+
+def test_a_reply_after_a_redrawn_prompt_stays_with_its_command():
+	"""A message redraws the prompt before the device answers a command: the answer
+	arrives after Netmiko's read. It is read before the next command and kept as that
+	command's reply - not the next command's, not lost."""
+	conn = connection()
+	conn.read_channel.side_effect = channel("% Invalid input detected at '^' marker.\nr1#")
+	result = push("cisco_ios", conn, commands=("snmp-server locatoin x", "snmp-server contact y"))
+	assert result.replies == (("% Invalid input detected at '^' marker.",), ())
+
+
+def test_a_connect_whose_setup_a_message_broke_is_tried_once_more():
+	"""A message during Netmiko's session setup times its read out: the connection is
+	opened once more before the device is failed."""
+	conn = connection()
+	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
+	                device_type="cisco_ios", secret="", port=22)
+	engine = RolloutEngine(RolloutOptions(), [device], ["hostname x"])
+	with patch("netmiko.ConnectHandler",
+	           side_effect=[netmiko.exceptions.ReadTimeout("setup"), conn]) as handler:
+		(result,) = engine.run(threading.Event(), fresh_logger())
+	assert handler.call_count == 2 and result["status"] == "not verified"
+
+
+def junos_typo_device(prompt="u@j1#"):
+	"""A Junos that echoes a refused command in pieces - "set snmp locatoin", then the
+	line redrawn with spaces (JS1, vJunos 24.4): Netmiko waiting for the exact echo
+	times out; without that wait it gets the answer and the prompt."""
+	conn = connection(prompt=prompt)
+
+	def send(commands, cmd_verify=True, **_):
+		if commands[0] == "set snmp locatoin nr-x":
+			if cmd_verify:
+				raise netmiko.exceptions.ReadTimeout("Pattern not detected: 'set\\ snmp\\ locatoin\\ nr\\-x'")
+			return (f"set snmp locatoin\n          ^\nsyntax error.\n\n{prompt} set snmp locatoin   nr-x\n"
+			        f"          ^\nsyntax error.\n\n[edit]\n{prompt} ")
+		return f"{commands[0]}\n\n[edit]\n{prompt} "
+	conn.send_config_set.side_effect = send
+	return conn
+
+
+def test_a_junos_refusal_echoed_in_pieces_doesnt_stop_the_push():
+	"""Junos isn't waited on for each command's whole echo (echo_whole off): a refused
+	command's answer is kept as its reply and the next command is still sent - the push
+	goes on, never "stopped answering"."""
+	conn = junos_typo_device()
+	result = push("juniper_junos", conn, commands=("set snmp locatoin nr-x", "set snmp contact y"))
+	assert not result.interrupted
+	assert result.replies[0] and "syntax error." in result.replies[0]
+	assert call.send_config_set(["set snmp contact y"], enter_config_mode=False,
+	                            exit_config_mode=False, cmd_verify=False) in conn.method_calls
+
+
+def test_other_platforms_keep_netmikos_echo_check():
+	"""Platforms that echo a command whole keep Netmiko's wait for it (no cmd_verify passed)."""
+	conn = connection()
+	push("cisco_ios", conn, commands=("snmp-server contact y",))
+	assert call.send_config_set(["snmp-server contact y"], enter_config_mode=False,
+	                            exit_config_mode=False) in conn.method_calls

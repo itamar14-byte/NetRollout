@@ -20,8 +20,8 @@ from src.rollout.address import is_ip, resolve
 from src.rollout.evidence import Outcome, judge, parse
 from src.rollout.log import Tone, redact
 from src.rollout.platforms import (
-	COMMIT_TIMEOUT, DEFAULTS_MAX_LINES, PLATFORMS, CommitPending, ConfigSession, EnableFailed, Platform, Target,
-	one_line, reply)
+	COMMIT_TIMEOUT, DEFAULTS_MAX_LINES, PLATFORMS, QUIET, CommitPending, ConfigSession, EnableFailed, Platform,
+	Target, late_output, one_line, reply)
 if TYPE_CHECKING:   # annotations only: engine.py imports this module
 	from src.rollout.engine import Device
 
@@ -127,12 +127,24 @@ def _connect_args(device: Device) -> dict[str, str | int]:
 	}
 
 
+def _connect(device: Device, **extra: Any) -> Any:
+	"""Netmiko's ConnectHandler - once more when its session setup timed out
+	waiting for a prompt: a message the device printed (syslog, a broadcast)
+	redraws the prompt in the middle of the setup's reads.
+
+	:raises: Netmiko's exceptions when it can't connect"""
+	try:
+		return netmiko.ConnectHandler(**_connect_args(device), **extra)
+	except netmiko.exceptions.ReadTimeout:
+		return netmiko.ConnectHandler(**_connect_args(device), **extra)
+
+
 @contextmanager
 def _new_session(device: Device, platform: Platform) -> Iterator[ConfigSession]:
 	""":returns: a new session to the device, ready for commands
 	 (Platform.prepare)
 	:raises RuntimeError: it couldn't be made ready"""
-	with netmiko.ConnectHandler(**_connect_args(device)) as conn:
+	with _connect(device) as conn:
 		if problem := platform.prepare(conn):
 			raise RuntimeError(problem)
 		yield conn
@@ -154,7 +166,7 @@ class NetmikoSession:
 		on leaving - a connection test's.
 
 		:raises: Netmiko's exceptions when it can't connect"""
-		conn = netmiko.ConnectHandler(**_connect_args(device))
+		conn = _connect(device)
 		try:
 			yield conn
 		finally:
@@ -185,7 +197,7 @@ class NetmikoSession:
 		# timeout - this keeps it (a question such as "[confirm]")
 		channel = io.BytesIO()
 		try:
-			net_connect = netmiko.ConnectHandler(**_connect_args(device), session_log=channel)
+			net_connect = _connect(device, session_log=channel)
 			try:
 				report.notify(f"{device.ip} connected successfully", Tone.SUCCESS)
 				# the session brought to speak the platform's language
@@ -198,7 +210,9 @@ class NetmikoSession:
 					report.action_needed(device, problem)
 					return PushResult(applied=False)
 
-				for command in commands:
+				for n, command in enumerate(commands):
+					if n:
+						self._late_reply(net_connect, replies, commands[n - 1], 0)
 					commands_sent = True
 					sent += 1
 					# Config mode was entered above: each command goes in exactly
@@ -207,9 +221,12 @@ class NetmikoSession:
 					# prompt (Aruba CX: "(config)#") then fail inside a section
 					_clear(net_connect, channel)
 					try:
+						# a platform whose refusals come back echoed in pieces isn't
+						# waited on for the whole echo (Platform.echo_whole)
 						output = net_connect.send_config_set(
 							[command.strip()], enter_config_mode=False,
-							exit_config_mode=False)
+							exit_config_mode=False,
+							**({} if platform.echo_whole else {"cmd_verify": False}))
 					except netmiko.exceptions.ReadTimeout:
 						replies.append(tuple(self._last_output(net_connect, channel, command)))
 						raise
@@ -224,6 +241,8 @@ class NetmikoSession:
 						              important=not verify)
 					for event in events:
 						report.notify(f"{device.endpoint}: device event: {event}")
+				if commands:
+					self._late_reply(net_connect, replies, commands[-1], QUIET)
 				# the commands aren't logged one by one (only a device's replies):
 				# this line keeps the order readable (pushed, then saved, then judged)
 				report.notify(f"{device.endpoint}: pushed {sent} command{'s' if sent != 1 else ''}")
@@ -425,11 +444,36 @@ class NetmikoSession:
 		 can't be read (said in the log: the device is then not verified)"""
 		device, platform = self._device, self._platform
 		try:
-			return platform.read_config(conn)
+			config = platform.read_config(conn)
 		except Exception as e:
 			self._report.notify(f"{device.endpoint}: couldn't read the configuration "
 			                    f"{why} - not verified ({e})", Tone.ERROR)
 			return None
+		if not config.strip():
+			# no device has an empty configuration: the read went wrong
+			self._report.notify(f"{device.endpoint}: the configuration read {why} came back "
+			                    f"empty - not verified", Tone.ERROR)
+			return None
+		return config
+
+	def _late_reply(self, conn: ConfigSession, replies: list[tuple[str, ...]],
+	                command: str, quiet: float) -> None:
+		"""What the device printed after a command's prompt - a message makes
+		it redraw its prompt, ending Netmiko's read before the answer: added
+		to that command's reply (else it would land on the next command's),
+		its events logged.
+
+		:param quiet: how long to wait for more (0: only what is there)"""
+		late = late_output(conn, quiet)
+		if not late.strip() or not replies:
+			return
+		said, events = reply(late, command, str(getattr(conn, "base_prompt", "")), self._platform.events)
+		for event in events:
+			self._report.notify(f"{self._device.endpoint}: device event: {event}")
+		if said:
+			replies[-1] = replies[-1] + tuple(said)
+			self._report.notify(f"{self._device.endpoint}: '{command.strip()}' - the device "
+			                    f"replied: {' | '.join(said)}", Tone.WARNING)
 
 	def _check_saved(self, conn: ConfigSession, outcome: Outcome) -> None:
 		"""On a platform that shows its saved configuration: every line the

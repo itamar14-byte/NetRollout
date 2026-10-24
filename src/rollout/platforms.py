@@ -9,6 +9,7 @@ src/rollout/session.py's.
 Adding a vendor: one PLATFORMS row plus a fixture in
 tests/unit/rollout/test_platforms.py."""
 import re
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Iterable
 from contextlib import AbstractContextManager
@@ -100,12 +101,15 @@ class ConfigSession(Protocol):
 
 	def send_config_set(self, config_commands: list[str], *,
 	                    exit_config_mode: bool = True,
-	                    enter_config_mode: bool = True) -> str: ...
+	                    enter_config_mode: bool = True,
+	                    cmd_verify: bool = True) -> str: ...
 
-	def send_command(self, command_string: str, *,
+	def send_command(self, command_string: str, *, expect_string: str | None = None,
 	                 read_timeout: float = 10.0) -> Any: ...
 
 	def send_command_timing(self, command_string: str) -> Any: ...
+
+	def read_channel(self) -> str: ...
 
 	# each committing driver has its own options (Junos, IOS XR and PAN-OS
 	# all take read_timeout); netmiko's base class declares none
@@ -214,15 +218,23 @@ class Commit(Finish):
 	 from its wording: the device's replies are shown)
 	:param pending: the command that shows what is still in the candidate
 	 (Junos `show | compare`): no output means nothing is left - a state
-	 read, not a message interpreted; "" - a person checks
+	 read, not a message interpreted; "" - a person checks. Asked before the
+	 commit too: a candidate with nothing in it (every command refused, or
+	 none changed anything) isn't committed - PAN-OS's commit() then waits
+	 for a progress bar that never comes
 	:param reverts_on_failure: the platform drops a failed commit by itself
-	 (IOS XR): no discard needed, nothing left to check"""
+	 (IOS XR): no discard needed, nothing left to check
+	:param by_pending: commit by sending "commit" and waiting for the prompt,
+	 then decide by the pending command - empty: committed; the change still
+	 there: the commit failed, its reply the reason (PAN-OS: Netmiko's
+	 commit() waits for a "100%" a failed commit never prints)"""
 
 	def __init__(self, discard: tuple[str, ...] = (), pending: str = "",
-	             reverts_on_failure: bool = False) -> None:
+	             reverts_on_failure: bool = False, by_pending: bool = False) -> None:
 		self.discard = discard
 		self.pending = pending
 		self.reverts_on_failure = reverts_on_failure
+		self.by_pending = by_pending
 
 	@property
 	def interruptible(self) -> bool:
@@ -230,8 +242,15 @@ class Commit(Finish):
 
 	def before_leave(self, conn: ConfigSession, report: Report,
 	                 device: Target) -> bool:
+		if self._left(conn, str(getattr(conn, "base_prompt", ""))) == []:
+			report.notify(f"{device.endpoint}: nothing to commit - '{self.pending}' shows "
+			              f"no change in the candidate", Tone.INFO)
+			return True
 		try:
-			conn.commit(read_timeout=COMMIT_TIMEOUT)
+			if self.by_pending:
+				self._commit_by_pending(conn)
+			else:
+				conn.commit(read_timeout=COMMIT_TIMEOUT)
 		except ReadTimeout:
 			# It may still complete on the device: the configuration decides
 			raise CommitPending from None
@@ -269,6 +288,23 @@ class Commit(Finish):
 
 	def after_leave(self, conn: ConfigSession) -> tuple[Any, str]:
 		return "", ""
+
+	def _commit_by_pending(self, conn: ConfigSession) -> None:
+		"""Send "commit", wait for the prompt, then read the candidate.
+
+		:raises ValueError: the change is still pending - the commit failed
+		 (the message: what the device replied to it)
+		:raises ReadTimeout: no prompt within the commit timeout
+		:raises CommitPending: the candidate couldn't be read after it"""
+		prompt = str(getattr(conn, "base_prompt", ""))
+		answer = conn.send_command("commit", expect_string=re.escape(prompt) + r"[#>]",
+		                           read_timeout=COMMIT_TIMEOUT)
+		left = self._left(conn, prompt)
+		if left is None:
+			raise CommitPending
+		if left:
+			raise ValueError(one_line(answer, "commit") or
+			                 f"'{self.pending}' still shows the change after the commit")
 
 	def _left(self, conn: ConfigSession, prompt: str) -> list[str] | None:
 		""":returns: what the candidate still holds after the discard (its
@@ -383,6 +419,11 @@ class Platform:
 	defaults: DefaultsFetch = no_defaults
 	# the shapes of a logged event line (EVENTS and the platform's own)
 	events: re.Pattern[str] = EVENTS
+	# whether Netmiko waits for each command's exact echo before its answer:
+	# a device that echoes a refused command in pieces (Junos stops at the
+	# bad word, then redraws the line) never gives it - the read then times
+	# out, though the device answered and prompted
+	echo_whole: bool = True
 	# section 5's row (row()): what can't be read off the fields above, in
 	# words (read, left_out, saved, events; any column may be said
 	# differently), and where each column's fact comes from - "lab"
@@ -437,19 +478,19 @@ class Platform:
 		:raises: Netmiko's errors when it can't be read"""
 		output = ""
 		for command in self.show_config:
-			# text: no parsing is asked for (TextFSM, TTP, Genie)
-			output = cast(str, conn.send_command(command, read_timeout=FETCH_TIMEOUT))
+			# text: no parsing is asked for (TextFSM, TTP, Genie); whole, even
+			# when a device message redrew the prompt mid-output (read_whole)
+			output = read_whole(conn, command)
 		return self.config(output)
 
 	def read_saved(self, conn: ConfigSession) -> str:
 		""":returns: the saved configuration (show_saved; the platform has one)"""
-		return cast(str, conn.send_command(self.show_saved, read_timeout=FETCH_TIMEOUT))
+		return read_whole(conn, self.show_saved)
 
 	def read_defaults(self, conn: ConfigSession, fetches: list[str]) -> str:
 		""":returns: the configuration shown with its defaults, for the
 		 commands the defaults fetch named (one view after the other)"""
-		return "\n".join(self.config(cast(str, conn.send_command(fetch, read_timeout=FETCH_TIMEOUT)))
-		                 for fetch in fetches)
+		return "\n".join(self.config(read_whole(conn, fetch)) for fetch in fetches)
 
 	def enter_config(self, conn: ConfigSession) -> str | None:
 		"""Into configuration mode, where the commands go as typed.
@@ -492,7 +533,7 @@ class PanOS(Platform):
 	def read_config(self, conn: ConfigSession) -> str:
 		conn.config_mode()
 		try:
-			output = cast(str, conn.send_command("show", read_timeout=FETCH_TIMEOUT))
+			output = read_whole(conn, "show")
 		finally:
 			conn.exit_config_mode()
 		return self.config(output)
@@ -559,8 +600,10 @@ class Junos(Platform):
 	"""Junos: "configure private" - our commit can't take other users'
 	pending edits along, and our rollback can't wipe them. Junos refuses it
 	while someone has uncommitted shared edits: the device then fails, with
-	the reason."""
+	the reason. A refused command's echo comes in pieces ("set snmp locatoin",
+	then the line redrawn): echo_whole off."""
 	config_command: str = "configure private"
+	echo_whole: bool = False
 
 	def enter_config(self, conn: ConfigSession) -> str | None:
 		try:
@@ -723,23 +766,26 @@ PLATFORMS: dict[str, Platform] = {
 		       "saved": "commit in configure private; discard rollback 0, check show | compare",
 		       "navigation": "edit, exit, quit, top, up (the path unknown after up)",
 		       "events": "Message from syslogd@…"},
-		sources={"read": "doc", "left_out": "doc", "saved": "doc", "layout": "doc", "navigation": "doc",
-		         "removal": "doc", "exec": "doc", "defaults": "doc", "events": "inferred"}),
+		# lab: JS1, vJunos-switch 24.4R1.9 (2026-10-24)
+		sources={"read": "lab", "left_out": "lab", "saved": "lab", "layout": "lab", "navigation": "lab",
+		         "removal": "lab", "exec": "lab", "defaults": "doc", "events": "inferred"}),
 	# revert config (8.0+); loading the running config into the candidate
 	# discards too, also on older releases. Both act on the shared candidate
 	"paloalto_panos": PanOS(
 		Commit(discard=("revert config", "load config from running-config.xml"),
-		       pending="run show config diff"),
+		       pending="run show config diff", by_pending=True),
 		("show",), flat=True, framing=re.compile(r"\[edit"),
 		exec_words=("run", "show", "check", "validate", "find", "save"),
 		navigation=_SET_NAV, negation=_DELETE,
 		about={"read": "set cli config-output-format set, then configure / show (the candidate)",
 		       "left_out": "the [edit] banner",
-		       "saved": "commit; discard revert config, check run show config diff (the shared candidate)",
+		       "saved": "commit, decided by run show config diff after it (nothing pending: not committed); "
+		                "discard revert config (the shared candidate)",
 		       "navigation": "edit, exit, quit, top, up (the path unknown after up)",
 		       "events": "none known"},
-		sources={"read": "unverified", "left_out": "doc", "saved": "doc", "layout": "doc", "navigation": "doc",
-		         "removal": "doc", "exec": "doc", "defaults": "doc", "events": "unverified"}),
+		# lab: PA1, PAN-OS 11.2.5 (2026-10-24)
+		sources={"read": "lab", "left_out": "lab", "saved": "lab", "layout": "lab", "navigation": "lab",
+		         "removal": "lab", "exec": "lab", "defaults": "doc", "events": "unverified"}),
 	# "lock database override" opens most snippets
 	"checkpoint_gaia": Gaia(
 		RunCommand("save config"), ("show configuration",), flat=True,
@@ -767,3 +813,48 @@ PLATFORMS: dict[str, Platform] = {
 COMMIT_TIMEOUT = 300
 # Printing a large firewall config (PAN-OS, FortiOS) takes a while
 FETCH_TIMEOUT = 120
+# After Netmiko's read returns: how long the device must stay quiet for the
+# read to count as whole, and at most how long the rest may take. A message
+# the device prints (syslog, a broadcast) makes it redraw its prompt, and
+# Netmiko's read ends at that prompt - in the middle of the output
+QUIET = 1.0
+REST_LIMIT = 60.0
+
+
+def late_output(conn: ConfigSession, quiet: float = QUIET) -> str:
+	"""What the device printed after Netmiko's read returned: read until it
+	has been quiet for `quiet` seconds (0: only what is already there), at
+	most REST_LIMIT.
+
+	:returns: the text, "" when nothing came"""
+	chunks: list[str] = []
+	started = last = time.monotonic()
+	while time.monotonic() - started < REST_LIMIT:
+		chunk = conn.read_channel()
+		if not isinstance(chunk, str):      # a channel gives text; anything else: nothing
+			break
+		if chunk:
+			chunks.append(chunk)
+			last = time.monotonic()
+		elif time.monotonic() - last >= quiet:
+			break
+		else:
+			time.sleep(0.1)
+	return "".join(chunks)
+
+
+def read_whole(conn: ConfigSession, command: str) -> str:
+	"""A command's whole output: Netmiko's read, plus what still came after
+	it - a prompt redrawn after a device message ends Netmiko's read in the
+	middle; the redrawn prompts are left out.
+
+	:returns: the output (an empty one is the caller's to refuse)"""
+	output = str(conn.send_command(command, read_timeout=FETCH_TIMEOUT))
+	rest = late_output(conn)
+	if rest.strip():
+		# a redrawn prompt, alone on its line or with the output going on after it
+		prompt = re.compile(re.escape(str(getattr(conn, "base_prompt", "")).strip()) + r"\s*[#>$%]?\s*")
+		lines = [prompt.sub("", line, count=1) if prompt.match(line.strip()) else line
+		         for line in (raw.strip("\r") for raw in rest.splitlines())]
+		output = output.rstrip("\n") + "\n" + "\n".join(line for line in lines if line.strip())
+	return output
