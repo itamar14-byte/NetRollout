@@ -1829,7 +1829,7 @@ The dashboards are Grafana dashboard v2 files, imported through Grafana's API. `
 
 ### 10.13 The CLI
 
-`python -m src.cli -d <devices.csv> -c <commands.txt> [-vf] [-v]` runs one rollout with the same `RolloutEngine`: missing paths are prompted for, credentials come from the CSV, unreachable devices are dropped before the push, and the exit code (`CliExit`) is 0 when every device succeeded, 1 for mixed results, 2 when nothing was applied, 130 on Ctrl+C. Logs go to `logs/` next to the executable. The standalone `netrollout-cli.exe` is one PyInstaller file (`pyinstaller --clean --noconfirm packaging/netrollout-cli.spec`), with the web stack excluded. The user-facing reference is [cli.md](cli.md).
+`python -m src.cli -d <devices.csv> -c <commands.txt> [-vf] [-v]` runs one rollout with the same `RolloutEngine`: missing paths are prompted for, credentials come from the CSV, unreachable devices are dropped before the push, and the exit code (`CliExit`) is 0 when every device in the file succeeded, 1 for mixed results (a device left out before the push included), 2 when nothing was applied, 130 on Ctrl+C. Logs go to `logs/` next to the executable. The standalone `netrollout-cli.exe` is one PyInstaller file (`pyinstaller --clean --noconfirm packaging/netrollout-cli.spec`), with the web stack excluded. The user-facing reference is [cli.md](cli.md).
 
 ### 10.14 Configuration
 

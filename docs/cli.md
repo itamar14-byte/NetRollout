@@ -181,8 +181,8 @@ A `$$` that isn't part of a variable, such as `banner motd $$ maintenance $$`, i
 
 | Code | Name | Meaning |
 |---|---|---|
-| `0` | OK | Every device succeeded. Without `-vf`: every device was sent the commands (not verified). |
-| `1` | Mixed | Some device in review, partial, failed or cancelled - or not verified although `-vf` asked for it - next to others that took the change. |
+| `0` | OK | Every device in the file succeeded. Without `-vf`: every device was sent the commands (not verified). |
+| `1` | Mixed | Some device in review, partial, failed or cancelled - or not verified although `-vf` asked for it - or left out before the push (unreachable, or an invalid row), next to others that took the change. |
 | `2` | Nothing applied | No device took the change (every one failed or was cancelled). Also used when the run stopped before the push: a missing file, commands that use variables, no valid devices or commands left, a "no" at the confirmation, or the input ending at a question. |
 | `130` | Interrupted | Ctrl+C. |
 

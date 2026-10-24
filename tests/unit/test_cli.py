@@ -36,7 +36,8 @@ def run_cli(monkeypatch):
 	"""Run cli.main() with argv and scripted input() answers. Returns
 	(exit_code, engine_ctor, prompts) - engine_ctor is the mocked
 	RolloutEngine class (None calls when no rollout started). The engine
-	reports every device as `statuses` (default: all success)."""
+	reports every device as `statuses` (default: all success); `reachable`
+	is every device's, or a function of (host, port)."""
 	def _run(argv, answers=(), reachable=True, engine_run=None,
 	         statuses=("success",)):
 		monkeypatch.setattr(sys, "argv", ["cli.py", *argv])
@@ -55,7 +56,8 @@ def run_cli(monkeypatch):
 		with patch.object(cli, "RolloutEngine", engine_ctor), \
 				patch.object(cli, "hard_exit", hard_exit), \
 				patch("src.rollout.inputs.tcp_reachable",
-				      return_value=reachable):
+				      **({"side_effect": reachable} if callable(reachable)
+				         else {"return_value": reachable})):
 			with pytest.raises(SystemExit) as exc:
 				cli.main()
 		return exc.value.code, engine_ctor, prompts
@@ -166,14 +168,15 @@ def test_wrong_commands_extension_exits_2(files, run_cli):
 
 def test_bad_rows_are_skipped_and_good_rows_still_run(files, run_cli):
 	"""Rows with a bad IP, an unknown platform or no credentials are skipped; the
-	good row runs, its device type lowercased, and the run exits 0."""
+	good row runs, its device type lowercased - and the run exits 1: the skipped
+	devices got nothing."""
 	rows = ("999.0.0.1,admin,pw,cisco_ios,,22\n"       # bad ip
 	        "10.0.0.2,admin,pw,not_a_platform,,22\n"    # bad platform
 	        "10.0.0.3,,,cisco_ios,,22\n"                # no credentials
 	        "10.0.0.4,admin,pw,Cisco_IOS,,2222\n")      # ok (type is lowercased)
 	devices, commands = files(rows=rows)
 	code, engine, _ = run_cli(["-d", devices, "-c", commands])
-	assert code == 0
+	assert code == 1
 	(device,) = engine_args(engine)["devices"]
 	assert (device.ip, device.port, device.device_type) == \
 	       ("10.0.0.4", 2222, "cisco_ios")
@@ -250,6 +253,22 @@ def test_exit_code_reflects_device_outcomes(files, run_cli, statuses,
 	devices, commands = files()
 	code, _, _ = run_cli(["-d", devices, "-c", commands], statuses=statuses)
 	assert code == expected
+
+
+@pytest.mark.parametrize("rows, reachable", [
+	# one of two devices unreachable: dropped before the push
+	("10.0.0.1,admin,pw,cisco_ios,,22\n10.0.0.2,admin,pw,cisco_ios,,22\n",
+	 lambda host, port: host == "10.0.0.1"),
+	# an invalid row next to a good one
+	("10.0.0.1,admin,pw,cisco_ios,,22\n999.0.0.1,admin,pw,cisco_ios,,22\n", True),
+])
+def test_a_device_dropped_before_the_push_makes_the_run_mixed(files, run_cli, rows, reachable):
+	"""A device of the file left out before the push got nothing: the others all
+	succeeding is exit 1 (mixed), not 0 - a script must not read it as all good."""
+	devices, commands = files(rows=rows)
+	code, engine, _ = run_cli(["-d", devices, "-c", commands], reachable=reachable)
+	assert len(engine_args(engine)["devices"]) == 1
+	assert code == 1
 
 
 # ── Ctrl+C ───────────────────────────────────────────────────────────────────

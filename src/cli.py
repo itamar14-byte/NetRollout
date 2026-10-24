@@ -147,7 +147,7 @@ def rollout(args: argparse.Namespace) -> NoReturn:
 		pause()
 	except KeyboardInterrupt:
 		pass                           # the rollout is over: its result stands
-	sys.exit(exit_code(results, verify=options.verify))
+	sys.exit(exit_code(results, verify=options.verify, dropped=len(raw_devices) - len(devices)))
 
 
 def hard_exit(code: int) -> NoReturn:
@@ -193,18 +193,22 @@ def abort(logger: RolloutLogger, message: str) -> NoReturn:
 	sys.exit(CliExit.NOTHING_APPLIED)
 
 
-def exit_code(results: list[DeviceResultDict], verify: bool = False) -> CliExit:
+def exit_code(results: list[DeviceResultDict], verify: bool = False,
+              dropped: int = 0) -> CliExit:
 	"""How the run went, for scripts and CI.
 
-	:param results: one per device
+	:param results: one per device rolled out to
 	:param verify: whether verification was asked for (-vf)
-	:returns: 0 = every device succeeded (without -vf: applied, not verified);
-	 1 = mixed (some in review, partial, failed, cancelled - or not verified
-	 although -vf asked for it); 2 = nothing applied anywhere (every device
-	 failed or was cancelled - or the run stopped before the push: abort())"""
+	:param dropped: the file's devices left out before the push (unreachable,
+	 an invalid row): they got nothing, so the run can't be all good
+	:returns: 0 = every device in the file succeeded (without -vf: applied,
+	 not verified); 1 = mixed (some in review, partial, failed, cancelled,
+	 dropped - or not verified although -vf asked for it); 2 = nothing
+	 applied anywhere (every device failed or was cancelled - or the run
+	 stopped before the push: abort())"""
 	statuses = [r["status"] for r in results]
 	done = (DeviceStatus.SUCCESS,) if verify else (DeviceStatus.SUCCESS, DeviceStatus.NOT_VERIFIED)
-	if statuses and all(s in done for s in statuses):
+	if statuses and all(s in done for s in statuses) and not dropped:
 		return CliExit.OK
 	applied = (DeviceStatus.SUCCESS, DeviceStatus.REVIEW, DeviceStatus.PARTIAL,
 	           DeviceStatus.NOT_VERIFIED)
