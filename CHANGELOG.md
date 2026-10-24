@@ -6,13 +6,46 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-10-25
+
+The first release. Since 1.0.0rc9, seven platforms were run through NetRollout's own engine against virtual devices in an EVE-NG lab - IOS, NX-OS, IOS-XR, Junos, PAN-OS, Check Point Gaia and FortiOS - and what that round found is fixed here. An installed release candidate upgrades from NetRollout Manager (**Upgrade**) or Linux's `netrollout.sh upgrade`, keeping everything; a before-upgrade backup is made first.
+
 ### Added
 
+- **Test sign-in** in the device window (Add, Edit, and a global device's read-only window): with a security profile chosen, an SSH sign-in with that profile at the address, port and platform the window holds now, saved or not - "Connected successfully", "Authentication failed", or what to fill in first.
 - **View Log** in Results: a job's rollout log in a window on the page, with a filter box (a device's address, a command, a word), next to Download Log - the same rule: its owner, or any administrator.
+- **Progress in the log** (shown with Verbose): during a push, every 5 seconds "pushing - 340 of 2500 sent"; a commit says "committing - the device applies the change now", then "still committing (25 s)" every 15 seconds - a PAN-OS commit often takes a minute or more, even for one line.
+- A rollout that waited for a free slot starts its log with how long and why ("Waited 53 s for a free slot - rollout jobs run a few at a time (System Settings: Concurrent rollout jobs)").
+- IOS-XR: a failed commit's log line ends with what `show configuration failed` shows - the reason, which IOS-XR's commit reply doesn't give.
+- Results: filter by job ID (`/results?id=<job>`).
+- The log says when a device's commands were pushed ("pushed N commands"), before the save, commit and verdicts.
+
+### Changed
+
+- **Commit platforms** (Junos, IOS-XR, PAN-OS): a candidate with nothing in it (every command refused, or none changed anything) isn't committed - the log says so. PAN-OS commits by sending `commit` and reading the candidate after it: a failed commit is known within seconds and reverted, where it waited about 7 minutes for a progress bar that never came.
+- **The CLI's exit code** is 0 only when every device in the file succeeded: a device dropped before the push (unreachable, or an invalid row) makes the run mixed (1). It exited 0 when the others succeeded.
+- The Verification window says "Unchanged: the push added and removed nothing" when a verified push changed nothing, instead of leaving the before → after section out; a changed line that isn't configuration (FortiOS's `#conf_file_ver`, a block's closing `next`) is marked "not configuration".
+- Messages built around a Netmiko error keep only its reason - never its paragraph of advice for developers ("Things you might try…"): a refused `configure private`, a configuration that couldn't be read, the defaults view, the save check, a failed commit (the device's own words, without the echo and prompt).
+- A connection the device closes before SSH starts says why ("couldn't connect: Error reading SSH protocol banner…"); "timed out" only when it timed out.
+- New Rollout's **Load from file…** puts a file's commands in the box, to read and edit before launching.
+- Active Jobs: a just-launched rollout's log opens on arrival; a log opened after the job ended shows its log file; a running job's row has no Rollback; the cancel question says what cancelling does ("Keep it running"); the local time clock is 24-hour in every locale.
+- The Grafana link opens the dashboards list; Inventory's Test Connection is in a global device's read-only window too; the rollback's keep-my-profile toggle reads as one sentence and names its devices.
+- The README marks seven platforms as tested in a lab; the user guide says which were verified and how long commit platforms take.
 
 ### Fixed
 
+- **Active Jobs' Cancel did nothing** (since 1.0.0rc4): the button's handler couldn't be reached from the page. A test now checks that every inline handler on every page can be.
+- Junos: a refused command no longer stops the push (Junos echoes it in pieces); the commands after it are sent and judged.
+- Device messages (Auto Image Upgrade, syslog, a broadcast) redrawing the prompt no longer cut a configuration read short or move a reply to the next command; an empty configuration read means "not verified", never a configuration with nothing in it; a connection that times out while connecting is tried once more.
+- Check Point Gaia: `delete host name X ipv4` is judged **removed** - the stored line says `ipv4-address`, which hid it - not "already absent".
+- A value a command replaced ("snmp-server location a" → "… b") is no longer given as another command's evidence (a typo next to it was "rejected" with the old value's removal as its evidence).
+- A failed enable says so, on one line; errors are logged as their first line.
 - A progress bar a device redraws while it works (NX-OS's `copy running-config startup-config`) is no longer logged frame by frame, nor taken for a reply: the log line keeps what the device said ("Copy complete.").
+- Grafana's panels count what their titles say, by Results' rules: job status, Devices Today, the breakdown by job, the average job duration.
+- The CLI no longer prints Paramiko's traceback when a connection fails.
+- Empty pages: the button under the big icon is a normal button again (it was stretched into a square), the icons are visible, and New Rollout's empty device list offers **Add devices** as a button.
+- System Settings: a message shown off screen scrolls into view. Verify and Verbose's icons are cyan only while switched on.
+- Pillow 13.0.0 (from 12.3.0).
 
 ## [1.0.0rc9] - 2026-10-22
 
@@ -279,7 +312,8 @@ Anycast. The first public release.
 
 - `netrollout-cli` for one-off rollouts from a devices CSV and a commands file, with optional Verify. A standalone Windows `.exe`; no database or Docker needed.
 
-[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc9...HEAD
+[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc9...v1.0.0
 [1.0.0rc9]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc8...v1.0.0rc9
 [1.0.0rc8]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc7...v1.0.0rc8
 [1.0.0rc7]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc6...v1.0.0rc7

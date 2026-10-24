@@ -3,7 +3,7 @@
 **Push config. Verify. Done.**
 
 [![CI](https://github.com/itamar14-byte/NetRollout/actions/workflows/ci.yml/badge.svg?branch=master&event=push)](https://github.com/itamar14-byte/NetRollout/actions/workflows/ci.yml?query=branch%3Amaster)
-[![Release](https://img.shields.io/github/v/release/itamar14-byte/NetRollout?include_prereleases&sort=semver&cacheSeconds=21600)](https://github.com/itamar14-byte/NetRollout/releases)
+[![Release](https://img.shields.io/github/v/release/itamar14-byte/NetRollout?sort=semver&cacheSeconds=21600)](https://github.com/itamar14-byte/NetRollout/releases)
 [![License: AGPL-3.0](https://img.shields.io/badge/license-AGPL--3.0-blue)](LICENSE)
 [![Docker Hub](https://img.shields.io/badge/docker%20hub-itamarweinstein%2Fnetrollout-2496ED?logo=docker&logoColor=white)](https://hub.docker.com/r/itamarweinstein/netrollout)
 
@@ -15,8 +15,8 @@ It is for network engineers who want a bulk change done and checked without writ
 
 ![The NetRollout dashboard](docs/images/dashboard.png)
 
-> [!IMPORTANT]
-> NetRollout is at release candidate stage. Try it on a lab device before you point it at production.
+> [!TIP]
+> Try a new command set on a lab device first: Verify shows what each command did before it reaches production.
 
 ## Contents
 

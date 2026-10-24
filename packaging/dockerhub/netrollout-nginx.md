@@ -17,8 +17,8 @@ Both are on the [Releases page](https://github.com/itamar14-byte/NetRollout/rele
 
 | Tag | Meaning |
 | --- | --- |
-| `<version>`, for example `1.0.0rc1` | One release, always used with the app image of the same version |
-| `latest` | The newest final release. Not published for release candidates, so it first appears with 1.0.0 |
+| `<version>`, for example `1.0.0` | One release, always used with the app image of the same version |
+| `latest` | The newest final release (never a release candidate) |
 
 ## What it does
 
