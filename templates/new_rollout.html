@@ -254,7 +254,7 @@
     font-family: 'Inter', sans-serif;
     font-size: 0.83rem;
 }
-.empty-state > i { font-size: 2rem; margin-bottom: 0.75rem; display: block; color: #252525; }
+.empty-state > i { font-size: 2rem; margin-bottom: 0.75rem; display: block; color: var(--nr-text-faint); }
 
 /* ── Multi-platform warning ── */
 .mp-warning {
@@ -574,9 +574,10 @@
                     {% else %}
                     <div class="empty-state">
                         <i class="bi bi-hdd-network-fill"></i>
-                        No devices in inventory.<br>
-                        <a href="{{ url_for('inventory.inventory') }}"
-                           style="color:#00bcd4; font-size:0.78rem;">Add devices →</a>
+                        <p>No devices in inventory.</p>
+                        <a href="{{ url_for('inventory.inventory') }}" class="btn btn-primary btn-sm">
+                            <i class="bi bi-plus-lg me-1"></i>Add devices
+                        </a>
                     </div>
                     {% endif %}
 

@@ -314,7 +314,7 @@ button.status-pill:hover { filter: brightness(1.2); }
     padding: 60px 20px;
     color: var(--nr-text-muted);
 }
-.empty-state > i { font-size: 2.5rem; margin-bottom: 16px; display: block; }
+.empty-state > i { font-size: 2.5rem; margin-bottom: 16px; display: block; color: var(--nr-text-faint); }
 
 /* ── Owner badge ── */
 .owner-badge {
@@ -789,7 +789,7 @@ button.status-pill:hover { filter: brightness(1.2); }
     <div class="nr-card-body empty-state">
         <i class="bi bi-inbox"></i>
         <div style="font-size:1rem; color:var(--nr-text); margin-bottom:6px;">Nothing pushed yet.</div>
-        <div style="font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:1.25rem;">The change window is open &mdash; a rollout's results show up here.</div>
+        <div style="font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:1.25rem;">The change window is open - a rollout's results show up here.</div>
         <a href="{{ url_for('rollout.new_rollout') }}" class="btn btn-primary btn-sm">
             <i class="bi bi-rocket-takeoff me-1"></i>Start a rollout
         </a>

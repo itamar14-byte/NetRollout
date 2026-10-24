@@ -15,3 +15,16 @@ def test_no_empty_state_rule_styles_the_icons_in_its_buttons():
 	loose = [f"{path.name}: {line.strip()}" for path in sorted(TEMPLATES.rglob("*.html"))
 	         for line in path.read_text(encoding="utf-8").splitlines() if LOOSE.search(line)]
 	assert loose == []
+
+
+ICON_RULE = re.compile(r"\.empty-(?:state|wrap)\s*>\s*i\s*\{([^}]*)\}")
+
+
+def test_every_empty_state_icon_is_visible():
+	"""Each empty state's big icon takes the theme's colour for decorative icons
+	(--nr-text-faint, at least 3:1 on the page): the near-black ones (#1e1e1e,
+	#222 on a #1c1c1c card) were invisible."""
+	rules = [(path.name, body) for path in sorted(TEMPLATES.rglob("*.html"))
+	         for body in ICON_RULE.findall(path.read_text(encoding="utf-8"))]
+	assert len(rules) >= 6
+	assert [name for name, body in rules if "color: var(--nr-text-faint)" not in body] == []
