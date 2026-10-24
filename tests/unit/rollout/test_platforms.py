@@ -415,15 +415,51 @@ def test_a_failed_panos_commit_is_told_by_the_candidate_in_seconds():
 
 def test_xr_failed_commit_needs_no_discard_and_no_warning():
 	"""A failed IOS XR commit sends no discard command (XR drops a failed commit by
-	itself), leaves config mode, reports not applied - and the log doesn't ask to discard
-	the changes on the device (unlike Junos / PAN-OS when their discard fails)."""
+	itself) - only asks why it failed (`show configuration failed`, a read) -, leaves
+	config mode, reports not applied - and the log doesn't ask to discard the changes on
+	the device (unlike Junos / PAN-OS when their discard fails)."""
 	conn = connection()
 	conn.commit.side_effect = ValueError("Commit failed")
 	logger = fresh_logger()
 	assert not push("cisco_xr", conn, logger=logger).applied
 	assert finish_calls(conn) == [call.commit(read_timeout=COMMIT_TIMEOUT),
+	                              call.send_config_set(["show configuration failed"],
+	                                                   exit_config_mode=False),
 	                              call.exit_config_mode()]
 	assert "still be in the candidate" not in log_of(logger)
+
+
+# IOS XRv 9000 7.1.1 (XR1, 2026-10-24): a commit attaching a route-policy that doesn't
+# exist - Netmiko's error, then what `show configuration failed` answered
+XR_COMMIT_ERROR = ("Commit failed with the following errors:\n\ncommit\n\n% Failed to commit one "
+                   "or more configuration items during a pseudo-atomic operation. All changes made "
+                   "have been reverted. Please issue 'show configuration failed [inheritance]' from "
+                   "this session to view the errors\nRP/0/RP0/CPU0:XR1(config)#")
+XR_WHY = ("show configuration failed\n\n!! SEMANTIC ERRORS: This configuration was rejected by \n"
+          "!! the system due to semantic errors. The individual \n!! errors with each failed "
+          "configuration command can be \n!! found below.\n\n\nrouter bgp 65000\n neighbor "
+          "192.0.2.5\n  address-family ipv4 unicast\n   route-policy NR-NO-SUCH-POLICY in\n!!% "
+          "Could not find entry in list: Policy [NR-NO-SUCH-POLICY] must be defined before it "
+          "can be attached.\n  !\n !\n!\nend\n\nRP/0/RP0/CPU0:XR1(config)#")
+
+
+def test_a_failed_xr_commit_logs_what_the_device_said_and_why():
+	"""The failed commit's line holds what IOS XR said - not Netmiko's heading, the
+	echoed commit or the prompt - and what `show configuration failed` shows: the
+	reason, on the same line."""
+	conn = connection(prompt="RP/0/RP0/CPU0:XR1(config)#")
+	conn.base_prompt = "RP/0/RP0/CPU0:XR1"
+	conn.commit.side_effect = ValueError(XR_COMMIT_ERROR)
+	sent = conn.send_config_set.side_effect
+	conn.send_config_set.side_effect = lambda commands, **kw: \
+		XR_WHY if commands == ["show configuration failed"] else sent(commands, **kw)
+	logger = fresh_logger()
+	assert not push("cisco_xr", conn, logger=logger).applied
+	line = next(l for l in log_of(logger).splitlines() if "commit failed - nothing was applied" in l)
+	assert "nothing was applied. % Failed to commit one or more configuration items" in line
+	assert "'show configuration failed' shows: " in line
+	assert "Policy [NR-NO-SUCH-POLICY] must be defined before it can be attached." in line
+	assert "Commit failed with the following errors" not in line and "XR1(config)#" not in line
 
 
 def test_junos_failed_commit_shows_the_rollbacks_reply_and_asks_to_check():

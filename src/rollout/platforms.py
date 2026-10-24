@@ -227,14 +227,20 @@ class Commit(Finish):
 	:param by_pending: commit by sending "commit" and waiting for the prompt,
 	 then decide by the pending command - empty: committed; the change still
 	 there: the commit failed, its reply the reason (PAN-OS: Netmiko's
-	 commit() waits for a "100%" a failed commit never prints)"""
+	 commit() waits for a "100%" a failed commit never prints)
+	:param why_failed: the command that shows why a commit failed, where the
+	 commit's own reply doesn't say (IOS XR: "show configuration failed",
+	 as its reply asks) - its answer is logged as it is, in the session that
+	 committed"""
 
 	def __init__(self, discard: tuple[str, ...] = (), pending: str = "",
-	             reverts_on_failure: bool = False, by_pending: bool = False) -> None:
+	             reverts_on_failure: bool = False, by_pending: bool = False,
+	             why_failed: str = "") -> None:
 		self.discard = discard
 		self.pending = pending
 		self.reverts_on_failure = reverts_on_failure
 		self.by_pending = by_pending
+		self.why_failed = why_failed
 
 	@property
 	def interruptible(self) -> bool:
@@ -255,10 +261,14 @@ class Commit(Finish):
 			# It may still complete on the device: the configuration decides
 			raise CommitPending from None
 		except ValueError as e:
-			report.notify(f"{device.endpoint}: commit failed - nothing was "
-			              f"applied. {e}", Tone.ERROR)
+			prompt = str(getattr(conn, "base_prompt", ""))
+			# what the device said: Netmiko's error carries the echo, the prompt
+			# and its own heading around it
+			said, _ = reply(str(e), "commit", prompt)
+			reason = " | ".join(line for line in said if line != NETMIKO_COMMIT_FAILED)
+			report.notify(f"{device.endpoint}: commit failed - nothing was applied"
+			              f"{'. ' + reason if reason else ''}{self._why(conn, prompt)}", Tone.ERROR)
 			if self.discard:
-				prompt = str(getattr(conn, "base_prompt", ""))
 				replies = []
 				for command in self.discard:
 					said, _ = reply(str(conn.send_config_set([command], exit_config_mode=False)),
@@ -305,6 +315,18 @@ class Commit(Finish):
 		if left:
 			raise ValueError(one_line(answer, "commit") or
 			                 f"'{self.pending}' still shows the change after the commit")
+
+	def _why(self, conn: ConfigSession, prompt: str) -> str:
+		""":returns: " - '<why_failed>' shows: …" (its answer on one line), ""
+		 when the platform has no such command or it couldn't be read"""
+		if not self.why_failed:
+			return ""
+		try:
+			output = conn.send_config_set([self.why_failed], exit_config_mode=False)
+		except Exception:
+			return ""
+		said, _ = reply(str(output), self.why_failed, prompt)
+		return f" - '{self.why_failed}' shows: {' | '.join(said)}" if said else ""
 
 	def _left(self, conn: ConfigSession, prompt: str) -> list[str] | None:
 		""":returns: what the candidate still holds after the discard (its
@@ -370,6 +392,10 @@ def fortios_blocks(sections: Iterable[Section]) -> list[str]:
 # The grammar table's columns (Platform.row; the user guide and the design
 # report show it)
 COLUMNS = ("read", "left_out", "saved", "layout", "navigation", "removal", "exec", "defaults", "events")
+
+
+# Netmiko's own heading above a failed commit's output (its ValueError)
+NETMIKO_COMMIT_FAILED = "Commit failed with the following errors:"
 
 
 def one_line(output: object, command: str) -> str:
@@ -708,7 +734,7 @@ PLATFORMS: dict[str, Platform] = {
 	# (Netmiko answers "no" to "commit them?") drops the pending changes.
 	# No documented defaults view
 	"cisco_xr": IosXr(
-		Commit(reverts_on_failure=True), framing=_XR_FRAMING,
+		Commit(reverts_on_failure=True, why_failed="show configuration failed"), framing=_XR_FRAMING,
 		exec_words=("do", "show"), events=_XR_EVENTS, navigation=_XR_NAV, negation=_NO,
 		about={"left_out": "the time stamp above every show (switched off: terminal exec prompt "
 		                   "no-timestamp)",
