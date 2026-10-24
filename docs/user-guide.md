@@ -513,8 +513,8 @@ Administrators can choose **VIEW AS** to see another user's numbers.
 | `aruba_aoscx` | Aruba AOS-CX | Saves the configuration | `show running-config all` | `do`, `show`, `copy`, `write`, `ping`, `traceroute`, `clear` |
 | `hp_procurve` | HP ProCurve | Saves the configuration | none | `show`, `write`, `ping`, `copy`, `traceroute`, `boot`, `reload` |
 | `hp_comware` | HP Comware | Saves the configuration | none | `display`, `save`, `ping`, `tracert` |
-| `juniper_junos` | Juniper JunOS | Commits, in `configure private` | none | `run`, `show`, `status`, `help`, `save` |
-| `paloalto_panos` | Palo Alto PAN-OS | Commits | none | `run`, `show`, `check`, `validate`, `find`, `save` |
+| `juniper_junos` | Juniper JunOS | Commits, in `configure private`, when the candidate holds a change (shown by its compare); a failed commit is discarded with `rollback 0`. Verified on vJunos 24.4. | none | `run`, `show`, `status`, `help`, `save` |
+| `paloalto_panos` | Palo Alto PAN-OS | Commits, when the candidate holds a change (`show config diff`); a failed commit is discarded with `revert config`. Verified on PAN-OS 11.2. | none | `run`, `show`, `check`, `validate`, `find`, `save` |
 | `checkpoint_gaia` | Check Point Gaia | Runs `save config` (in clish) | none | `show`, `lock`, `unlock`, `save` |
 | `fortinet` | Fortinet FortiOS | Nothing to save: changes are live. NetRollout closes any `config` block left open. | `show full-configuration <section>` | `get`, `show`, `execute`, `diagnose`, `tree`, `sudo`, `fnsysctl` |
 

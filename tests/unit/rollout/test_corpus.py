@@ -1,5 +1,5 @@
 """The judge on the whole lab corpus (tests/unit/rollout/lab: R1 IOS 12.4,
-NXOS1 NX-OS 7.3, FGT1 FortiOS 7.2), judged as a push session judges: what
+NXOS1 NX-OS 7.3, FGT1 FortiOS 7.2, PA1 PAN-OS 11.2, JS1 vJunos 24.4), judged as a push session judges: what
 the device said told apart by the platform's shapes, its exec words, and
 its configuration shown with defaults where the case recorded it.
 
@@ -30,6 +30,8 @@ KNOWN_FALSE_REJECTIONS = {
 	("R1/rsa-key-label", "crypto key generate rsa general-keys label NR-TEST modulus 512"),
 	# the state is right (nothing to delete), but the device refused it
 	("FGT1/delete-absent", "delete nr-absent"),
+	("PA1/delete-absent", "delete address nr-b2-none"),     # "Object doesn't exist"
+	("JS1/delete-absent", "delete snmp contact"),           # "statement not found"
 	# recorded without the defaults view, which proves it (FGT1/defaults-same-warning)
 	("FGT1/hidden-default-same", "set admin-sport 443"),
 }
