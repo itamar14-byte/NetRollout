@@ -2,7 +2,7 @@
 # requirements.txt, compiled from this file on Linux:
 #   pip-compile requirements.in      (CONTRIBUTING.md: Dependencies)
 # Dependabot updates both. Edit this file, never requirements.txt.
-SQLAlchemy~=2.1.4
+SQLAlchemy~=2.1.6
 alembic~=1.20.0
 Flask-Login~=0.6.3
 flask-session~=0.8.0
