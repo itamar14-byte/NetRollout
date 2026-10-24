@@ -508,7 +508,7 @@ Administrators can choose **VIEW AS** to see another user's numbers.
 | `cisco_ios` | Cisco IOS | Saves the configuration | `show running-config all` | `do` |
 | `cisco_xe` | Cisco IOS XE | Saves the configuration | `show running-config all` | `do` |
 | `cisco_nxos` | Cisco NX-OS | Saves the configuration | `show running-config all` | `do`, `show`, `copy`, `write`, `ping`, `traceroute`, `clear` |
-| `cisco_xr` | Cisco IOS-XR | Commits. A failed commit leaves the running configuration unchanged. | none | `do`, `show` |
+| `cisco_xr` | Cisco IOS-XR | Commits. A failed commit leaves the running configuration unchanged. Verified on IOS XRv 9000 7.1.1. | none | `do`, `show` |
 | `arista_eos` | Arista EOS | Saves the configuration | `show running-config all` | `do`, `show`, `copy`, `write`, `ping`, `traceroute`, `clear` |
 | `aruba_aoscx` | Aruba AOS-CX | Saves the configuration | `show running-config all` | `do`, `show`, `copy`, `write`, `ping`, `traceroute`, `clear` |
 | `hp_procurve` | HP ProCurve | Saves the configuration | none | `show`, `write`, `ping`, `copy`, `traceroute`, `boot`, `reload` |

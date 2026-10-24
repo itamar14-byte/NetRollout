@@ -1,5 +1,5 @@
 """The judge on the whole lab corpus (tests/unit/rollout/lab: R1 IOS 12.4,
-NXOS1 NX-OS 7.3, FGT1 FortiOS 7.2, PA1 PAN-OS 11.2, JS1 vJunos 24.4), judged as a push session judges: what
+NXOS1 NX-OS 7.3, FGT1 FortiOS 7.2, PA1 PAN-OS 11.2, JS1 vJunos 24.4, XR1 IOS-XR 7.1), judged as a push session judges: what
 the device said told apart by the platform's shapes, its exec words, and
 its configuration shown with defaults where the case recorded it.
 
@@ -41,6 +41,7 @@ REVIEW = {
 	("NXOS1/mask-rewritten", "ip address 10.98.98.2 255.255.255.255"),
 	("NXOS1/rerun-rewritten", "ip address 10.98.98.2 255.255.255.255"),
 	("NXOS1/defaults-rewritten", "ip address 10.98.98.2 255.255.255.255"),
+	("XR1/address-rewritten", "ipv4 address 10.51.51.1/32"),         # stored as a mask
 	("R1/deprecated-spelling", "ip domain-name nr.local"),
 	# a secret stored hashed
 	("R1/secret-hashed", "username nrtest secret Probe-Pass-1"),

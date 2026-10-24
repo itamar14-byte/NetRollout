@@ -713,8 +713,9 @@ PLATFORMS: dict[str, Platform] = {
 		       "saved": "commit (atomic: a failure reverts); no startup configuration",
 		       "defaults": "none (none documented)",
 		       "events": "RP/0/RP0/CPU0:Oct 21 10:00:00.123 UTC: … (a year first: inferred)"},
-		sources={"read": "doc", "left_out": "doc", "saved": "doc", "layout": "doc", "navigation": "doc",
-		         "removal": "doc", "exec": "doc", "defaults": "unverified", "events": "doc"}),
+		# lab: XR1, IOS XRv 9000 7.1.1 (2026-10-24)
+		sources={"read": "lab", "left_out": "lab", "saved": "lab", "layout": "lab", "navigation": "lab",
+		         "removal": "lab", "exec": "lab", "defaults": "unverified", "events": "doc"}),
 	# "show running-config all": EOS (Ansible's eos_config defaults; Arista
 	# also documents "show active all"), AOS-CX ("all: Shows all default
 	# values for the current running configuration")
