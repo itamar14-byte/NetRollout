@@ -128,7 +128,7 @@ rich==15.0.0
     # via netmiko
 scp==0.16.2
     # via netmiko
-sqlalchemy==2.1.4
+sqlalchemy==2.1.6
     # via
     #   -r requirements.in
     #   alembic
