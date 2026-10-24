@@ -6,6 +6,7 @@ rollout from a devices CSV and a commands file - no database, no web app.
 Missing paths are asked for; a prompted run also asks about Verify and
 confirms before the push. The exit code says how it went (exit_code)."""
 import argparse
+import logging
 import os
 import sys
 import threading
@@ -51,6 +52,10 @@ def get_args() -> argparse.Namespace:
 def main() -> NoReturn:
 	"""One rollout, start to finish; exits with exit_code's code (130 on
 	Ctrl+C, 2 when the input ends at a question)."""
+	# Paramiko logs a failed connection's traceback from its own thread;
+	# with no handler Python prints it to the console. The rollout's log
+	# says what failed, in a line
+	logging.getLogger("paramiko").addHandler(logging.NullHandler())
 	args = get_args()
 	try:
 		rollout(args)

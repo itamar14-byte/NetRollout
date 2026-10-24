@@ -2,6 +2,7 @@
 hand-off to RolloutEngine. The engine and TCP probe are mocked - no devices,
 no network."""
 import json
+import logging
 import subprocess
 import sys
 from pathlib import Path
@@ -269,6 +270,16 @@ def test_a_device_dropped_before_the_push_makes_the_run_mixed(files, run_cli, ro
 	code, engine, _ = run_cli(["-d", devices, "-c", commands], reachable=reachable)
 	assert len(engine_args(engine)["devices"]) == 1
 	assert code == 1
+
+
+def test_paramikos_own_log_never_reaches_the_console(files, run_cli):
+	"""Paramiko logs a failed connection's traceback from its own thread: the CLI
+	gives its logger a handler, so Python doesn't print it raw to the console
+	(the rollout's log says what failed)."""
+	logging.getLogger("paramiko").handlers.clear()
+	devices, commands = files()
+	run_cli(["-d", devices, "-c", commands])
+	assert any(isinstance(h, logging.NullHandler) for h in logging.getLogger("paramiko").handlers)
 
 
 # ── Ctrl+C ───────────────────────────────────────────────────────────────────

@@ -3,6 +3,7 @@ command is recognised, and the verify verdicts against the config as each
 platform prints it (fixtures approximate real output; the EVE-NG round is
 the real-device check)."""
 import re
+import socket
 import threading
 import time
 import uuid
@@ -10,6 +11,7 @@ from pathlib import Path
 from unittest.mock import DEFAULT, MagicMock, call, patch
 
 import netmiko
+import paramiko
 import pytest
 
 from src.rollout import evidence, inputs
@@ -1833,3 +1835,36 @@ def test_a_long_push_reports_its_progress_and_a_quick_one_doesnt():
 	with patch("src.rollout.session._clock", lambda: 0):
 		push("cisco_ios", connection(), commands=commands, logger=logger)
 	assert "pushing - " not in log_of(logger)
+
+
+def _netmiko_connect_error(cause):
+	"""Netmiko's NetmikoTimeoutException as establish_connection raises it: from
+	inside the handler of `cause`, its advice around the reason."""
+	def connect(**_):
+		try:
+			raise cause
+		except Exception as e:
+			raise netmiko.NetmikoTimeoutException(
+				f"\nA paramiko SSHException occurred during connection creation:\n\n{e}\n\n")
+	return connect
+
+
+@pytest.mark.parametrize("cause, line", [
+	# B4 on rc9: XR1 closed the connection before SSH started - not a timeout
+	(paramiko.SSHException("Error reading SSH protocol banner[WinError 10054] An existing "
+	                       "connection was forcibly closed by the remote host"),
+	 "10.0.0.1 couldn't connect: Error reading SSH protocol banner[WinError 10054] An existing "
+	 "connection was forcibly closed by the remote host"),
+	(socket.timeout("timed out"), "10.0.0.1 timed out"),
+])
+def test_a_failed_connection_says_what_happened(cause, line):
+	"""A connection Netmiko reports as a timeout: "timed out" only when it timed
+	out; otherwise the SSH layer's own reason, without Netmiko's heading."""
+	device = Device(ip="10.0.0.1", label="d", username="u", password="p",
+	                device_type="cisco_ios", secret="", port=22)
+	logger = fresh_logger()
+	with patch("netmiko.ConnectHandler", side_effect=_netmiko_connect_error(cause)):
+		result = NetmikoSession(device, RunReport(logger)).push(["hostname x"])
+	assert not result.applied
+	log = log_of(logger)
+	assert line in log and "A paramiko SSHException" not in log

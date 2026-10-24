@@ -40,6 +40,18 @@ def first_line(error: BaseException) -> str:
 	return lines[0] if lines else type(error).__name__
 
 
+def connect_failure(error: BaseException) -> str:
+	""":returns: why a connection failed, in words - "timed out" for a
+	 timeout; else the SSH layer's own reason. Netmiko reports every SSH
+	 error at connection as a timeout, its advice around the reason; the
+	 error it was raised from says what happened ("Error reading SSH
+	 protocol banner… forcibly closed by the remote host")"""
+	cause = error.__context__
+	if cause is None or isinstance(cause, TimeoutError):
+		return "timed out"
+	return f"couldn't connect: {first_line(cause)}"
+
+
 def first_sentence(error: BaseException) -> str:
 	""":returns: an error's first sentence (Netmiko's enable() failure goes on
 	 with "Please ensure you pass the 'secret' argument…")"""
@@ -282,8 +294,8 @@ class NetmikoSession:
 		except netmiko.NetMikoAuthenticationException:
 			report.notify(f"{device.ip} authentication failed", Tone.ERROR)
 			return PushResult(applied=False)
-		except netmiko.NetmikoTimeoutException:
-			report.notify(f"{device.ip} timed out", Tone.ERROR)
+		except netmiko.NetmikoTimeoutException as e:
+			report.notify(f"{device.ip} {connect_failure(e)}", Tone.ERROR)
 			return PushResult(applied=False)
 		except EnableFailed as e:
 			# "secret" last: the log's redaction hides the word after it
