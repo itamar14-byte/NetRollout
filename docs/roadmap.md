@@ -26,10 +26,14 @@ Today a rollback runs the undo commands you write. In 1.1, NetRollout proposes t
 - **Always yours to check.** The suggestion is labelled, editable, and nothing runs until you start it. The rollback is then verified like any rollout, so a wrong suggestion ends in review, never as a silent success. Verify itself never uses generated knowledge: it judges by the device's own configuration only.
 - **While the snapshots are kept.** Suggestions need the configuration snapshots (7 days by default), and a device changed since the rollout gets a warning first.
 
-## Notifications and ChatOps (a 1.x minor release)
+## Notifications, ChatOps and an API (a 1.x minor release)
 
 - **A notification engine**: every notable event (a rollout finished or failed, ACTION NEEDED, an access request, a failed backup) delivered reliably to the channels an admin sets up: email, signed webhooks (for ticketing and automation tools), and chat. Never lost, never sent twice, never slowing a rollout.
 - **Chat**: Telegram, Slack and Microsoft Teams. In Telegram and Slack you can also act from the chat (cancel a rollout, approve a change), over connections NetRollout opens itself, so the server is never exposed to the internet. Teams messages link into NetRollout's pages.
+- **A public HTTP API**: for scripts, CI pipelines and other tools - launch a rollout, follow it, read its results and verdicts. Per-user API tokens instead of a browser session, versioned (`/api/v1/…`) so a 1.x release never breaks a script, documented with OpenAPI. Chat actions and signed webhooks are built on the same foundation.
+
+> [!NOTE]
+> **Until then, NetRollout 1.0 has no public API.** The web pages talk to the server through JSON endpoints of their own, which change when the pages need them to; every request is checked on the server, but a script using them can break in any release. For scripted rollouts, use the [CLI](cli.md): its exit codes are made for scripts and CI.
 
 ## Change management (a 1.x minor release)
 
