@@ -24,52 +24,6 @@
 }
 .device-row.disabled * { pointer-events: none; }
 
-.device-check, #selectAll {
-    appearance: none;
-    -webkit-appearance: none;
-    width: 15px;
-    height: 15px;
-    flex-shrink: 0;
-    border: 1px solid #333;
-    border-radius: 3px;
-    background: #1a1a1a;
-    cursor: pointer;
-    position: relative;
-    transition: border-color 0.15s, background 0.15s;
-    vertical-align: middle;
-}
-.device-check:checked, #selectAll:checked {
-    background: #00bcd4;
-    border-color: #00bcd4;
-}
-.device-check:checked::after, #selectAll:checked::after {
-    content: '';
-    position: absolute;
-    left: 4px;
-    top: 1px;
-    width: 4px;
-    height: 8px;
-    border: 2px solid #000;
-    border-top: none;
-    border-left: none;
-    transform: rotate(45deg);
-}
-#selectAll:indeterminate {
-    background: rgba(0,188,212,0.15);
-    border-color: #00bcd4;
-}
-#selectAll:indeterminate::after {
-    content: '';
-    position: absolute;
-    left: 3px;
-    top: 6px;
-    width: 7px;
-    height: 2px;
-    background: #00bcd4;
-    transform: none;
-    border: none;
-}
-
 /* The logo shows the device's state: its brand colours once it's reachable,
    grey while it's being checked or when it isn't (the reach icon beside it
    says which, by shape). Inventory's cards do the same. */
@@ -220,10 +174,6 @@
     padding: 0.6rem 0.85rem;
     border-bottom: 1px solid #1e1e1e;
     background: #111;
-}
-.device-list-header input[type="checkbox"] {
-    accent-color: #00bcd4;
-    cursor: pointer;
 }
 .device-search {
     flex: 1;
@@ -464,7 +414,7 @@
                                    data-endpoint="{{ device.ip | endpoint(device.port) }}"
                                    title="{% if lacks_profile %}You have no security profile on it - link one in Inventory{% endif %}">
                                 <input type="checkbox"
-                                       class="device-check device-cb"
+                                       class="nr-check device-check device-cb"
                                        name="device_ids"
                                        value="{{ device.id }}"
                                        data-platform="{{ device.device_type }}"
@@ -555,7 +505,7 @@
 
                         {# Header: select-all + search #}
                         <div class="device-list-header">
-                            <input type="checkbox" id="selectAll" title="Select all">
+                            <input type="checkbox" id="selectAll" class="nr-check" title="Select all">
                             <i class="bi bi-search" style="color:var(--nr-text-faint); font-size:0.75rem;"></i>
                             <input type="text" class="device-search"
                                    id="deviceSearch" placeholder="Filter by label or address…">
@@ -767,6 +717,7 @@
             </div>
             <textarea class="cmd-textarea" id="${taId}"
                       placeholder="interface GigabitEthernet0/1&#10;  description uplink&#10;  no shutdown"
+                      spellcheck="false" autocapitalize="off" autocorrect="off" autocomplete="off"
                       rows="7"></textarea>
             <div class="cmd-loaded" id="${fnId}" hidden></div>
         `;

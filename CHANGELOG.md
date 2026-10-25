@@ -6,6 +6,11 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Changed
+
+- Every check box has NetRollout's look (one shared style): the bulk review's "Also decide the N other devices" and Server Management's "Also delete these users" (red) were the browser's own white boxes.
+- The command boxes (New Rollout, Rollback) no longer spell-check or auto-capitalise: `snmp`, `sysinfo` or `deviceconfig` aren't marked as typos, and a phone doesn't capitalise a command's first word.
+
 ## [1.1.0] - 2026-10-25
 
 A device now takes one rollout at a time, and New Rollout, Inventory and the dashboard show which devices are in a rollout. Plus what the first day of 1.0.0 in the lab turned up. An installed 1.0.0 updates from NetRollout Manager (**Upgrade**) or Linux's `netrollout.sh upgrade`, keeping everything; a before-upgrade backup is made first. No database change.

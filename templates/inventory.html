@@ -316,20 +316,6 @@
     transition: background 0.12s;
 }
 .mapping-opt:hover { background: rgba(255,255,255,0.02); }
-.edit-mapping-cb:checked {
-    background: #00bcd4 !important;
-    border-color: #00bcd4 !important;
-}
-.edit-mapping-cb:checked::after {
-    content: '';
-    position: absolute;
-    left: 3px; top: 1px;
-    width: 4px; height: 7px;
-    border: 2px solid #000;
-    border-top: none; border-left: none;
-    transform: rotate(45deg);
-}
-
 /* ── Expand section (variable attributes) ── */
 .expand-toggle {
     display: flex;
@@ -989,12 +975,7 @@
                                 <label class="mapping-opt" data-token="{{ m.token }}">
                                     <input type="checkbox" name="mapping_ids"
                                            value="{{ m.id|string }}"
-                                           class="edit-mapping-cb"
-                                           style="appearance:none; -webkit-appearance:none;
-                                                  width:13px; height:13px; border:1px solid #333;
-                                                  border-radius:3px; background:#1a1a1a;
-                                                  flex-shrink:0; position:relative;
-                                                  cursor:pointer; margin:0;">
+                                           class="nr-check edit-mapping-cb">
                                     <span style="font-family:'JetBrains Mono',monospace;
                                                  font-size:0.72rem; color:#00bcd4;">{{ m.token }}</span>
                                     <span style="font-size: 0.75rem; color:var(--nr-text-muted); margin-left:4px;">
@@ -2167,10 +2148,7 @@ async function submitQuickCreateMapping() {
         const indexSuffix = data.index !== null ? '[' + data.index + ']' : '';
         lbl.innerHTML =
             '<input type="checkbox" name="mapping_ids" value="' + nrEscape(data.id) + '"' +
-            ' class="edit-mapping-cb" checked' +
-            ' style="appearance:none;-webkit-appearance:none;width:13px;height:13px;' +
-            'border:1px solid #333;border-radius:3px;background:#1a1a1a;' +
-            'flex-shrink:0;position:relative;cursor:pointer;margin:0;">' +
+            ' class="nr-check edit-mapping-cb" checked>' +
             '<span style="font-family:\'JetBrains Mono\',monospace;font-size:0.72rem;color:#00bcd4;">' +
             nrEscape(data.token) + '</span>' +
             '<span style="font-size: 0.75rem;color:var(--nr-text-muted);margin-left:4px;">→ ' +

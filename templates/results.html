@@ -57,7 +57,7 @@ button.status-pill:hover { filter: brightness(1.2); }
            white-space:pre-wrap; word-break:break-word; }
 .vf-mixed { font-size:0.78rem; color:#ffcc80; border-left:2px solid #b26500; padding-left:8px; }
 .vf-alike { display:flex; gap:8px; align-items:flex-start; font-size:0.78rem; color:var(--nr-text-muted); }
-.vf-alike input { margin-top:3px; accent-color:#00bcd4; }
+.vf-alike .nr-check { margin-top:1px; }
 
 /* ── Verification window: a device's commands, each with its verdict ── */
 .vf-cmd { padding:7px 10px; border-radius:6px; }
@@ -268,37 +268,9 @@ button.status-pill:hover { filter: brightness(1.2); }
     vertical-align: middle;
 }
 
-/* ── Diff mode: a click on a card picks it (the box shows it), a click
-   outside the cards or Escape leaves; the box is New Rollout's ── */
-.diff-checkbox {
-    display: none;
-    appearance: none;
-    -webkit-appearance: none;
-    width: 15px;
-    height: 15px;
-    flex-shrink: 0;
-    border: 1px solid #333;
-    border-radius: 3px;
-    background: #1a1a1a;
-    cursor: pointer;
-    position: relative;
-    vertical-align: middle;
-    margin: 0 8px 0 0;
-    transition: border-color 0.15s, background 0.15s;
-}
-.diff-checkbox:checked { background: #00bcd4; border-color: #00bcd4; }
-.diff-checkbox:checked::after {
-    content: '';
-    position: absolute;
-    left: 4px;
-    top: 1px;
-    width: 4px;
-    height: 8px;
-    border: 2px solid #000;
-    border-top: none;
-    border-left: none;
-    transform: rotate(45deg);
-}
+/* ── Diff mode: a click on a card picks it (its .nr-check box shows it),
+   a click outside the cards or Escape leaves ── */
+.diff-checkbox { display: none; margin-right: 8px; }
 #job-list.diff-mode .diff-checkbox { display: inline-block; }
 #job-list.diff-mode .job-row { cursor: pointer; }
 #job-list.diff-mode .job-row:hover .diff-checkbox:not(:checked) { border-color: #00bcd4; }
@@ -540,7 +512,7 @@ button.status-pill:hover { filter: brightness(1.2); }
     <div class="job-summary">
         <!-- Job ID + comment + optional owner -->
         <div>
-            <input type="checkbox" class="diff-checkbox"
+            <input type="checkbox" class="nr-check diff-checkbox"
                    onclick="event.stopPropagation();"
                    onchange="handleDiffSelect(this)">
             <span style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:var(--nr-text-muted);"
@@ -1263,7 +1235,7 @@ async function _renderVerifyDiff(device, activeTab) {
         // the job's other devices awaiting a decision with the same commands,
         // verdicts and replies: decided the same way on request
         const alike = data.alike || [];
-        const together = _el('input');
+        const together = _el('input', 'nr-check');
         if (alike.length) {
             const label = _el('label', 'vf-alike');
             together.type = 'checkbox';

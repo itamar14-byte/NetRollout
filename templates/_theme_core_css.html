@@ -210,6 +210,55 @@
         }
         .form-check-label { color: var(--nr-text-muted) !important; font-size: 0.88rem; }
 
+        /* ── NetRollout's check box (.nr-check): every box that isn't a switch
+           (.nr-toggle) or one of Bootstrap's form boxes - one look app-wide,
+           held by tests/unit/webapp/test_templates_checkboxes.py ── */
+        .nr-check {
+            appearance: none;
+            -webkit-appearance: none;
+            width: 15px;
+            height: 15px;
+            flex-shrink: 0;
+            margin: 0;
+            border: 1px solid #333;
+            border-radius: 3px;
+            background: #1a1a1a;
+            position: relative;
+            vertical-align: middle;
+            cursor: pointer;
+            transition: border-color 0.15s, background 0.15s;
+        }
+        .nr-check:hover:not(:disabled) { border-color: #00bcd4; }
+        .nr-check:checked { background: #00bcd4; border-color: #00bcd4; }
+        .nr-check:checked::after {
+            content: '';
+            position: absolute;
+            left: 4px;
+            top: 1px;
+            width: 4px;
+            height: 8px;
+            border: 2px solid #000;
+            border-top: none;
+            border-left: none;
+            transform: rotate(45deg);
+        }
+        /* some of a list ticked (a select-all) */
+        .nr-check:indeterminate { background: rgba(0,188,212,0.15); border-color: #00bcd4; }
+        .nr-check:indeterminate::after {
+            content: '';
+            position: absolute;
+            left: 3px;
+            top: 6px;
+            width: 7px;
+            height: 2px;
+            background: #00bcd4;
+        }
+        .nr-check:disabled { opacity: 0.4; cursor: not-allowed; }
+        .nr-check:focus-visible { outline: 2px solid #00bcd4; outline-offset: 2px; }
+        /* a box that deletes something */
+        .nr-check-danger:hover:not(:disabled) { border-color: #ef5350; }
+        .nr-check-danger:checked { background: #ef5350; border-color: #ef5350; }
+
         /* ── Tables ── */
         .table { color: #ccc !important; }
         .table > :not(caption) > * > * { background-color: transparent !important; color: #ccc !important; }
