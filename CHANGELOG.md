@@ -6,6 +6,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-10-26
+
+Polish found while taking 1.1.0's screenshots. An installed 1.1.0 updates from NetRollout Manager (**Upgrade**) or Linux's `netrollout.sh upgrade`, keeping everything; a before-upgrade backup is made first. No database change.
+
 ### Changed
 
 - Every check box has NetRollout's look (one shared style): the bulk review's "Also decide the N other devices" and Server Management's "Also delete these users" (red) were the browser's own white boxes.
@@ -340,7 +344,8 @@ Anycast. The first public release.
 
 - `netrollout-cli` for one-off rollouts from a devices CSV and a commands file, with optional Verify. A standalone Windows `.exe`; no database or Docker needed.
 
-[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.1.1...HEAD
+[1.1.1]: https://github.com/itamar14-byte/NetRollout/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc9...v1.0.0
 [1.0.0rc9]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc8...v1.0.0rc9
