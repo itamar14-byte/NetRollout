@@ -100,9 +100,9 @@ class Setting(ABC):
 	def page_fields(self) -> dict[str, object]:
 		"""What the page's input needs besides the value - every key for every
 		kind (the template reads them all), empty where it doesn't apply."""
-		return {"minimum": None, "maximum": None, "pattern": None, "pattern_hint": "",
-		        "placeholder": "", "max_length": None, "required": False,
-		        "choices": None}
+		return {"minimum": None, "maximum": None, "unit": "", "pattern": None,
+		        "pattern_hint": "", "placeholder": "", "max_length": None,
+		        "required": False, "choices": None}
 
 	def seed_value(self) -> Value | None:
 		"""Value for a new row: the install-time env value if valid, else the
@@ -118,10 +118,13 @@ class Setting(ABC):
 
 @dataclass(frozen=True)
 class IntSetting(Setting):
-	"""A whole number within an optional range."""
+	"""A whole number within an optional range, of a unit the page shows
+	beside it and in its default ("days"; "" for a number that's its own
+	unit, a port)."""
 	kind: ClassVar[type] = int
 	minimum: int | None = None
 	maximum: int | None = None
+	unit: str = ""
 
 	def parse(self, raw: object) -> int:
 		if isinstance(raw, bool):      # JSON true is an int to Python
@@ -151,7 +154,8 @@ class IntSetting(Setting):
 				return self.default, f"{stored!r} {e}"
 
 	def page_fields(self) -> dict[str, object]:
-		return {**super().page_fields(), "minimum": self.minimum, "maximum": self.maximum}
+		return {**super().page_fields(), "minimum": self.minimum, "maximum": self.maximum,
+		        "unit": self.unit}
 
 	def sql_value(self) -> str:
 		"""SQL expression for the setting, for statements that run inside
@@ -213,36 +217,36 @@ class ChoiceSetting(Setting):
 
 SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	# ── Retention ──
-	IntSetting("job_retention_days", "Job records",
+	IntSetting("job_retention_days", "Keep job records for",
 	        "A rollout's results and commands (Results, Download Log).",
-	        "Retention", 30, minimum=1, maximum=3650,
+	        "Retention", 30, minimum=1, maximum=3650, unit="days",
 	        applies="next nightly clean-up", sql=True),
-	IntSetting("config_snapshot_retention_days", "Config snapshots",
+	IntSetting("config_snapshot_retention_days", "Keep config snapshots for",
 	        "The configurations Verify read and their diff (Results → Verification). "
 	        "The job record itself is kept longer.",
-	        "Retention", 7, minimum=1, maximum=3650,
+	        "Retention", 7, minimum=1, maximum=3650, unit="days",
 	        applies="next nightly clean-up", sql=True),
-	IntSetting("audit_retention_days", "Audit log",
+	IntSetting("audit_retention_days", "Keep the audit log for",
 	        "Who did what, when (Admin → Audit).",
-	        "Retention", 90, minimum=7, maximum=3650,
+	        "Retention", 90, minimum=7, maximum=3650, unit="days",
 	        applies="next nightly clean-up", sql=True),
-	IntSetting("log_retention_days", "Log files",
+	IntSetting("log_retention_days", "Keep log files for",
 	        "Files in the logs/ folder - browsable on the server for "
 	        "troubleshooting after the job record is gone.",
-	        "Retention", LOG_RETENTION_DAYS, minimum=1, maximum=3650,
+	        "Retention", LOG_RETENTION_DAYS, minimum=1, maximum=3650, unit="days",
 	        applies="next daily log clean-up"),
 	# ── Rollouts ──
-	IntSetting("orchestrator_workers", "Concurrent rollout jobs",
+	IntSetting("orchestrator_workers", "Rollouts at the same time",
 	        "How many rollouts run at the same time; more wait in the queue.",
-	        "Rollouts", 4, minimum=1, maximum=32, applies=AFTER_RESTART,
+	        "Rollouts", 4, minimum=1, maximum=32, unit="rollouts", applies=AFTER_RESTART,
 	        env="ORCHESTRATOR_WORKERS"),
-	IntSetting("device_parallelism", "Devices in parallel per job",
+	IntSetting("device_parallelism", "Devices at the same time, per rollout",
 	        "How many devices one rollout configures at the same time.",
-	        "Rollouts", 10, minimum=1, maximum=64, applies="next rollout"),
-	IntSetting("reachability_cache_seconds", "Reachability cache",
-	        "How long a device's up/down status is reused before it's probed "
-	        "again (seconds).",
-	        "Rollouts", 60, minimum=10, maximum=3600, applies="immediately"),
+	        "Rollouts", 10, minimum=1, maximum=64, unit="devices", applies="next rollout"),
+	IntSetting("reachability_cache_seconds", "Reuse a device's up/down status for",
+	        "A device's reachability (its dot in Inventory and New Rollout) is "
+	        "probed again once this has passed.",
+	        "Rollouts", 60, minimum=10, maximum=3600, unit="seconds", applies="immediately"),
 	TextSetting("dns_suffix", "Device DNS suffix",
 	        "Added to a device saved by name alone: core1 is reached as "
 	        "core1.corp.local. Full names and IP addresses are used as they "
@@ -271,11 +275,11 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	        placeholder="netrollout.corp.local", max_length=253, lowercase=True),
 	# ── Sessions ──
 	IntSetting("session_idle_minutes", "Sign out after inactivity",
-	        "Minutes without a click or a page change before a session ends "
+	        "Without a click or a page change for this long, a session ends "
 	        "(a warning comes a minute before). Background refreshes and live "
 	        "logs don't count. However active, signing in is required again "
 	        "after 12 hours.",
-	        "Sessions", 15, minimum=5, maximum=480, applies="within 30 s"),
+	        "Sessions", 15, minimum=5, maximum=480, unit="minutes", applies="within 30 s"),
 	# ── Backups (src/backup/schedule.py runs them) ──
 	ChoiceSetting("backup_schedule", "Scheduled backup",
 	        "A backup of the database, Grafana's dashboards, the certificate "
@@ -285,25 +289,25 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	        "Backups", BackupSchedule.DAILY, applies="next scheduled time",
 	        choices=((BackupSchedule.OFF, "Off"), (BackupSchedule.DAILY, "Daily"),
 	                 (BackupSchedule.WEEKLY, "Weekly"))),
-	TextSetting("backup_time", "At",
+	TextSetting("backup_time", "Time",
 	        "The server's local time (24-hour). A time missed while the server "
 	        "was off is caught up when it's back.",
 	        "Backups", "02:00", applies="next scheduled time",
 	        pattern=r"([01][0-9]|2[0-3]):[0-5][0-9]",
 	        pattern_hint="must be a time like 02:00 (24-hour)",
 	        placeholder="02:00", max_length=5, required=True),
-	ChoiceSetting("backup_weekday", "On",
+	ChoiceSetting("backup_weekday", "Day (weekly backups)",
 	        "The day of a weekly backup.",
 	        "Backups", Weekday.SUN, applies="next scheduled time",
 	        choices=((Weekday.MON, "Monday"), (Weekday.TUE, "Tuesday"),
 	                 (Weekday.WED, "Wednesday"), (Weekday.THU, "Thursday"),
 	                 (Weekday.FRI, "Friday"), (Weekday.SAT, "Saturday"),
 	                 (Weekday.SUN, "Sunday"))),
-	IntSetting("backup_keep", "Keep",
+	IntSetting("backup_keep", "Scheduled backups to keep",
 	        "How many scheduled backups are kept; older ones are deleted. "
 	        "Backups made by hand, or before a restore or an upgrade, stay "
 	        "until someone deletes them.",
-	        "Backups", 14, minimum=1, maximum=365,
+	        "Backups", 14, minimum=1, maximum=365, unit="backups",
 	        applies="next scheduled backup"),
 	IntSetting("https_port", "HTTPS port",
 	        "The port people use to reach NetRollout. Saving a new one opens "
@@ -473,7 +477,7 @@ class SettingsStore:
 				"from_install": changed and row is not None
 				                and row.updated_by is None,
 				"updated_at": row.updated_at if row is not None else None,
-				"minimum": fields["minimum"], "maximum": fields["maximum"],
+				"minimum": fields["minimum"], "maximum": fields["maximum"], "unit": fields["unit"],
 				"pattern": fields["pattern"], "pattern_hint": fields["pattern_hint"],
 				"placeholder": fields["placeholder"], "max_length": fields["max_length"],
 				"required": fields["required"],

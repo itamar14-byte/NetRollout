@@ -142,3 +142,13 @@ def test_str_setting_parse_trims():
 	s = TextSetting("x", "X", "help", "Access", None)
 	assert s.parse("  https://nr.corp  ") == "https://nr.corp"
 	assert s.parse(None) == ""
+
+
+def test_every_number_setting_says_its_unit():
+	"""A number box on System Settings shows what the number counts (days,
+	seconds, rollouts, ...) beside it and in its default - only the HTTPS port
+	is its own unit. A bare "30" under "Keep the audit log for" said nothing."""
+	bare = [s.key for s in SETTINGS.values()
+	        if isinstance(s, IntSetting) and not s.unit and s.key != "https_port"]
+	assert bare == []
+	assert SETTINGS["audit_retention_days"].page_fields()["unit"] == "days"

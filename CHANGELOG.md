@@ -6,6 +6,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Changed
+
+- System Settings says what each row sets and in what: every number shows its unit beside the box and in its default (days, seconds, minutes, rollouts, devices, backups), and the labels say what you set - **Keep the audit log for** 90 days, **Rollouts at the same time**, **Reuse a device's up/down status for** 60 seconds, **Scheduled backups to keep**. A list's default shows its label (Daily, Sunday), not its value.
+
 ### Fixed
 
 - Signing in after a session ended on a page left open could land on `/account/session` (a page's background session check) instead of the page you were on: once signed out, that check - and any request from a page's script - now gets a 401, never the sign-in page, so it can't replace the page to return to. The page returned to also drops an automatic reload's `?_bg=1`.

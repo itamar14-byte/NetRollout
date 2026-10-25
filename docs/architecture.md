@@ -1443,8 +1443,8 @@ erDiagram
 | | `commands_verified` | int | Commands the configuration proved (took effect, already in place, removed); null when not judged |
 | | `status` | string(64) | `success`, `review`, `partial`, `failed`, `not verified`, `cancelled` |
 | | `action_needed` | text | Nullable |
-| | `fetched_config` | text | Nullable: the configuration after the push, kept for a device in review; cleared after *Config snapshots* |
-| | `config_diff` | text | Nullable: the configuration before → after (unified); cleared after *Config snapshots* (the page then says Verification expired) |
+| | `fetched_config` | text | Nullable: the configuration after the push, kept for a device in review; cleared after the config snapshot retention |
+| | `config_diff` | text | Nullable: the configuration before → after (unified); cleared after the config snapshot retention (the page then says Verification expired) |
 | | `transcript` | JSON | Nullable: `{commands: [{command, verdict, evidence, note, reply}], other_changes}`, redacted; null when not judged |
 | | `replies` | JSON | Nullable: a device not judged, what it replied - `[{command, reply: [lines]}]` for the commands it answered, redacted (`engine.replied`); null when judged (the transcript has them) or silent. Revision `v1_0_0_replies` |
 | | `review_outcome`, `review_comment` | string(16), text | Nullable: `confirmed` / `rejected` and why |
@@ -1499,7 +1499,7 @@ Redis holds nothing that must survive: sessions, the job queue, live job state a
 | `job:{id}:history` | list | `LiveLog` | The live log's lines so far. |
 | `job:{id}:logs` | pub/sub channel | `LiveLog` | New lines, published as `<n>\t<line>`, and `__done__` at the end. |
 | `redis_session:{sid}` | string | Flask-Session (`_SafeRedisSessionInterface`) | A signed-in session. `SessionStore` reads them to list or end a user's sessions. |
-| `reach:{ip}:{port}` | string with expiry | `ReachabilityChecker` | A cached TCP reachability probe (the *Reachability cache* setting): reachable, when, and for a hostname the address it resolved to (or `unresolved`). |
+| `reach:{ip}:{port}` | string with expiry | `ReachabilityChecker` | A cached TCP reachability probe (the *Reuse a device's up/down status for* setting): reachable, when, and for a hostname the address it resolved to (or `unresolved`). |
 | `signin:fails:{hash}`, `signin:locked:{hash}` | counter, 15-minute expiry; string, 15 minutes | `SignInThrottle` | Failed sign-ins in a row per typed username (any name, an account or not; `{hash}` = SHA-256 of the name lower-cased, so no typed text is stored), and the 15-minute stop the 5th one starts. |
 
 ### Files on disk
@@ -1595,7 +1595,7 @@ Everything that shows or redirects to an address uses `serving_port()` (the help
 
 ### 10.1 The rollout engine and platforms
 
-`RolloutEngine(options, devices, commands).run(cancel_flag, logger)` runs the devices in a thread pool (`max_workers` = the *Devices in parallel per job* setting for the web app). For each device:
+`RolloutEngine(options, devices, commands).run(cancel_flag, logger)` runs the devices in a thread pool (`max_workers` = the *Devices at the same time, per rollout* setting for the web app). For each device:
 
 1. **Substitute tokens.** `Device.commands_for()` replaces each `$$TOKEN$$` from the user's variable mappings and the device's attribute values; `unresolved()` lists what can't be filled (the routes refuse such a rollout before queueing it, and the push checks again).
 2. **Push.** `NetmikoSession(device, report).push(commands, verify)` has the platform bring the session to speak its language (`Platform.prepare`: leave a wrong shell, enable or not, session settings); with Verify it reads the configuration (`Platform.read_config`, without the platform's `framing`); then config mode once (`Platform.enter_config` - Junos uses `configure private`), and one command at a time exactly as typed (`send_config_set(…, enter_config_mode=False)`). What the device answers is told apart by shape (`reply()`: the echo, the prompt, IOS's `^`, Junos' `[edit]` left out; lines of the platform's event shapes - `Platform.events`: time stamps, uptime stamps, syslog mnemonics, Comware / ProCurve / IOS-XR forms - are device events), logged with its command and kept, and the rest are still sent. Whether a command got a reply is passed to the judge; its wording never is. A typed `end` followed by more config commands is refused, as on the device. A prompt that changes mid-push (a new hostname) ends that session; the finish then runs from a fresh one.
@@ -1677,7 +1677,7 @@ Each class also holds its row of the grammar table (`row()`, `COLUMNS`) and wher
 
 ### 10.2 Jobs and orchestration
 
-`RolloutOrchestrator(backend, max_concurrent)` is created once at app start; `max_concurrent` is the *Concurrent rollout jobs* setting as it was at start (a change applies after a restart).
+`RolloutOrchestrator(backend, max_concurrent)` is created once at app start; `max_concurrent` is the *Rollouts at the same time* setting as it was at start (a change applies after a restart).
 
 - **Submit** builds the `RolloutEngine` and `RolloutJob`, writes the job's Redis state and its `JobMetadata` row, and queues it. A submit that fails partway withdraws the job: nothing is left in memory or Redis.
 - **The dispatcher**, a permanent thread, takes job ids from the Redis queue (5 s blocking wait, so a switched Redis client is picked up), waits for one of `max_concurrent` slots, and claims the job under the lock before starting it. It survives any error reading the queue, with exponential backoff (1 to 30 s).

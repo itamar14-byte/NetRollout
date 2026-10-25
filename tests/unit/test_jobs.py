@@ -982,7 +982,7 @@ def test_a_job_that_waited_for_a_slot_says_so_first(waited, line):
 	job._thread.join(5)
 	with open(job._logger.logfile, encoding="utf-8") as f:
 		lines = f.read().splitlines()
-	assert line in lines[0] and "Concurrent rollout jobs" in lines[0]
+	assert line in lines[0] and "Rollouts at the same time" in lines[0]
 	assert "Starting configuration rollout" in lines[1]
 
 

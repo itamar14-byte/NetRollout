@@ -18,6 +18,7 @@
                font-family: 'JetBrains Mono', monospace; font-size: 0.6875rem; cursor: pointer; }
   .set-reset:hover { color: #00bcd4; text-decoration: underline; }
   .set-input { font-family: 'JetBrains Mono', monospace !important; }
+  .set-unit { font-size: 0.8rem; color: var(--nr-text-muted); background: transparent; min-width: 4.6rem; justify-content: center; }
   .set-input.dirty { border-color: rgba(0,188,212,0.6) !important; }
   .set-input.is-invalid { border-color: #ef5350 !important; }
   .set-error { display: none; font-size: 0.78rem; color: #ef9a9a; margin-top: 0.35rem; }
@@ -93,7 +94,8 @@
         <div class="set-help" id="help-{{ s.key }}">{{ s.help }}</div>
         <div class="set-meta">
           <span class="set-chip applies">applies: {{ s.applies }}</span>
-          <span>default: {{ s.default if s.default not in (None, '') else '-' }}</span>
+          {% set default_label = (s.choices | selectattr(0, 'equalto', s.default) | map(attribute=1) | first) if s.choices else s.default %}
+          <span>default: {{ default_label if default_label not in (None, '') else '-' }}{% if s.unit %} {{ s.unit }}{% endif %}</span>
           <span class="set-chip changed" data-marker="changed" {% if not s.changed or s.from_install %}hidden{% endif %}>changed</span>
           <span class="set-chip install" data-marker="install" title="Set by the installer, or on the server itself (netrollout port) - the audit log says which" {% if not s.from_install %}hidden{% endif %}>set on the server</span>
           <button type="button" class="set-reset" data-reset="{{ s.key }}" {% if not s.changed %}hidden{% endif %}>reset to default</button>
@@ -108,11 +110,14 @@
           {% endfor %}
         </select>
         {% elif s.kind == 'int' %}
-        <input type="number" class="form-control form-control-sm set-input" id="set-{{ s.key }}"
-               name="{{ s.key }}" value="{{ s.value }}" step="1"
-               {% if s.minimum is not none %}min="{{ s.minimum }}"{% endif %}
-               {% if s.maximum is not none %}max="{{ s.maximum }}"{% endif %}
-               aria-describedby="help-{{ s.key }} err-{{ s.key }}" {% if not s.editable %}disabled{% endif %}>
+        <div class="input-group input-group-sm">
+          <input type="number" class="form-control form-control-sm set-input" id="set-{{ s.key }}"
+                 name="{{ s.key }}" value="{{ s.value }}" step="1"
+                 {% if s.minimum is not none %}min="{{ s.minimum }}"{% endif %}
+                 {% if s.maximum is not none %}max="{{ s.maximum }}"{% endif %}
+                 aria-describedby="help-{{ s.key }} err-{{ s.key }}" {% if not s.editable %}disabled{% endif %}>
+          {% if s.unit %}<span class="input-group-text set-unit">{{ s.unit }}</span>{% endif %}
+        </div>
         {% else %}
         <input type="text" class="form-control form-control-sm set-input" id="set-{{ s.key }}"
                name="{{ s.key }}" value="{{ s.value }}" placeholder="{{ s.placeholder }}"

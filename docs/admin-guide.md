@@ -617,26 +617,26 @@ The LDAP explorer's import can do the same for a whole directory move: tick **Re
 
 | Card | Setting | Default | Range | What it does | Takes effect |
 |---|---|---|---|---|---|
-| Retention | **Job records** | 30 days | 1 – 3650 | How long a rollout's results and commands are kept (Results, Download Log). | Next nightly clean-up |
-| Retention | **Config snapshots** | 7 days | 1 – 3650 | How long the configurations Verify read are kept: each verified device's diff, and the configuration after for a device in review (Results → Verification). The verdicts themselves stay with the job record. | Next nightly clean-up |
-| Retention | **Audit log** | 90 days | 7 – 3650 | How long audit log entries are kept. | Next nightly clean-up |
-| Retention | **Log files** | 60 days | 1 – 3650 | How long files in `logs/` are kept. | Next daily log clean-up |
-| Rollouts | **Concurrent rollout jobs** | 4 | 1 – 32 | How many rollouts run at the same time; more wait in the queue. | After restart |
-| Rollouts | **Devices in parallel per job** | 10 | 1 – 64 | How many devices one rollout configures at the same time. | Next rollout |
-| Rollouts | **Reachability cache** | 60 s | 10 – 3600 | How long a device's up/down status is reused before it's probed again. | Immediately |
+| Retention | **Keep job records for** | 30 days | 1 – 3650 | How long a rollout's results and commands are kept (Results, Download Log). | Next nightly clean-up |
+| Retention | **Keep config snapshots for** | 7 days | 1 – 3650 | How long the configurations Verify read are kept: each verified device's diff, and the configuration after for a device in review (Results → Verification). The verdicts themselves stay with the job record. | Next nightly clean-up |
+| Retention | **Keep the audit log for** | 90 days | 7 – 3650 | How long audit log entries are kept. | Next nightly clean-up |
+| Retention | **Keep log files for** | 60 days | 1 – 3650 | How long files in `logs/` are kept. | Next daily log clean-up |
+| Rollouts | **Rollouts at the same time** | 4 | 1 – 32 | How many rollouts run at the same time; more wait in the queue. | After restart |
+| Rollouts | **Devices at the same time, per rollout** | 10 | 1 – 64 | How many devices one rollout configures at the same time. | Next rollout |
+| Rollouts | **Reuse a device's up/down status for** | 60 s | 10 – 3600 | How long a device's up/down status is reused before it's probed again. | Immediately |
 | Rollouts | **Device DNS suffix** | (empty) | a domain, such as `corp.local` | Added to a device saved by a name alone: `core1` is reached as `core1.corp.local`. Full names and IP addresses are used as they are. Device names are looked up in the DNS the NetRollout server uses, so that DNS must know them. | Immediately |
 | Access | **Hostname** | (empty) | a hostname or IPv4 address | The name people use; other names redirect to it. See [Hostname and certificates](#hostname-and-certificates). | Immediately |
 | Access | **HTTPS port** | 443 (or the port chosen at install) | 1 – 65535 | The port people use. See [The HTTPS port](#the-https-port). | Once confirmed on the new port |
 | Sessions | **Sign out after inactivity** | 15 min | 5 – 480 | Minutes without activity before a session ends. | Within 30 s |
 | Backups | **Scheduled backup** | Daily | Off / Daily / Weekly | Whether scheduled backups are made. | Next scheduled time |
-| Backups | **At** | 02:00 | 24-hour time | The server's local time for the backup. | Next scheduled time |
-| Backups | **On** | Sunday | a weekday | The day of a weekly backup. | Next scheduled time |
-| Backups | **Keep** | 14 | 1 – 365 | How many scheduled backups are kept. | Next scheduled backup |
+| Backups | **Time** | 02:00 | 24-hour time | The server's local time for the backup. | Next scheduled time |
+| Backups | **Day (weekly backups)** | Sunday | a weekday | The day of a weekly backup. | Next scheduled time |
+| Backups | **Scheduled backups to keep** | 14 | 1 – 365 | How many scheduled backups are kept. | Next scheduled backup |
 
 Two rules keep the retention settings consistent:
 
-- **Log files** must be kept at least as long as **Job records**, because Download Log needs the file while the job exists.
-- **Config snapshots** can't be kept longer than **Job records**.
+- Log files must be kept at least as long as job records, because Download Log needs the file while the job exists.
+- Config snapshots can't be kept longer than job records.
 
 A changed setting that applies after a restart shows **Restart required** in Administration, with a **Restart server** button.
 
@@ -738,8 +738,8 @@ The **nightly clean-up** runs inside NetRollout at 03:00 server time, on whichev
 
 | Data | Kept for (default) | Setting |
 |---|---|---|
-| Job records (results, metadata) | 30 days | **Job records** |
-| Configuration snapshots from Verify (the before → after diff; the configuration after, for a device in review) | 7 days | **Config snapshots** |
+| Job records (results, metadata) | 30 days | **Keep job records for** |
+| Configuration snapshots from Verify (the before → after diff; the configuration after, for a device in review) | 7 days | **Keep config snapshots for** |
 | Audit log entries | 90 days | **Audit log** |
 
 A clean-up missed while the server was off runs once when it's back; a failed one is retried after an hour. The Retention card in System Settings shows the last clean-up and what it removed.

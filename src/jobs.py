@@ -395,8 +395,8 @@ class RolloutJob:
 				if waited >= 1:
 					# the log's times start here: say where the time before went
 					self._logger.notify(f"Waited {waited_text(waited)} for a free slot - rollout jobs "
-					                    f"run a few at a time (System Settings: Concurrent "
-					                    f"rollout jobs)", important=True)
+					                    f"run a few at a time (System Settings: Rollouts at "
+					                    f"the same time)", important=True)
 				self.results = self._engine.run(self._cancel_flag, self._logger)
 			except Exception as e:
 				self._logger.notify(f"Rollout aborted: {e}", Tone.ERROR)
