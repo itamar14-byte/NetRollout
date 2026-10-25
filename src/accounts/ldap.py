@@ -16,7 +16,7 @@ from typing import Any
 
 from ldap3 import Server, Connection, Tls, ALL, SIMPLE, SUBTREE, LEVEL, BASE
 from ldap3.core.exceptions import (LDAPException, LDAPBindError,
-                                   LDAPInvalidCredentialsResult,
+                                   LDAPInvalidCredentialsResult, LDAPInvalidDnError,
                                    LDAPNoSuchObjectResult)
 from ldap3.utils.conv import escape_filter_chars
 from ldap3.utils.dn import escape_rdn, parse_dn
@@ -70,8 +70,10 @@ class VerifiedTls(Tls):
 		self.cadata = cadata
 
 	def context(self) -> ssl.SSLContext:
-		""":returns: the TLS context: certificate and host name required"""
+		""":returns: the TLS context: certificate and host name required, TLS
+		 1.2 or newer (said, not left to the platform's default)"""
 		context = ssl.create_default_context()
+		context.minimum_version = ssl.TLSVersion.TLSv1_2
 		if self.cadata:
 			context.load_verify_locations(cadata=self.cadata)
 		return context
@@ -456,6 +458,11 @@ class Directory:
 		:param dn: where to look; the base DN when None
 		:returns: {"status": "ok", "entries": [{type: ou / group / user, dn,
 		 label, username}]} or {"status": "error", "message": ...}"""
+		if dn:
+			try:
+				parse_dn(dn)
+			except LDAPInvalidDnError:      # never sent to the directory
+				return {"status": "error", "message": f"{dn!r} is not a valid DN."}
 		conn = None
 		try:
 			scope = dn or self.server.base_dn

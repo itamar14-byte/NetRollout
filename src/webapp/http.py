@@ -9,6 +9,7 @@ from collections.abc import Callable
 from datetime import date
 from enum import Enum
 from typing import TYPE_CHECKING, Any, TypeVar, cast
+from urllib.parse import urlsplit
 
 from flask import Response, flash, g, jsonify, redirect, request, url_for
 from flask.typing import ResponseReturnValue
@@ -116,6 +117,21 @@ def own_server(address: str) -> str:
 	        f"your computer or a device - use the device's name or address on the network")
 
 
+def back(default: str) -> str:
+	"""Where a page is sent back to: the referring page's path when it's on
+	this site, else `default` - never another site (the Referer header is the
+	browser's, so a link from elsewhere would bounce there). Not the referrer's
+	query: Active Jobs' auto-reload adds ?_bg=1, which marks a request as
+	background.
+
+	:param default: the endpoint without a referrer of this site's
+	:returns: the path to redirect to"""
+	referrer = urlsplit(request.referrer or "")
+	if referrer.netloc == request.host and referrer.path.startswith("/") 			and not referrer.path.startswith("//"):
+		return referrer.path
+	return url_for(default)
+
+
 def require_admin(f: View) -> View:
 	"""Admins only: anyone else gets 403 (JSON / XHR) or is sent back to the
 	page they came from."""
@@ -124,7 +140,7 @@ def require_admin(f: View) -> View:
 		if not viewer().is_admin:
 			if Caller.SCRIPT.wants_json():
 				return err("Forbidden", 403)
-			return redirect(request.referrer or url_for("jobs.dashboard"))
+			return redirect(back("jobs.dashboard"))
 		return f(*args, **kwargs)
 
 	return decorated
@@ -168,7 +184,7 @@ def with_form(*required_fields: str) -> Callable[[View], View]:
 							return err(f"Missing field: {field}")
 						flash(f"{field.replace('_', ' ').title()} is required.",
 						      "danger")
-						return redirect(request.referrer or url_for("auth.home"))
+						return redirect(back("auth.home"))
 			return f(*args, data=request.form, **kwargs)
 
 		return decorated

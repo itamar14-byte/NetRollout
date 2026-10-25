@@ -61,3 +61,16 @@ def test_certificate_failures_in_words(message, words):
 def test_other_errors_are_passed_through():
 	"""Anything else is said as ldap3 says it."""
 	assert ldap.explain(Exception("invalid credentials"), "dc1") == "invalid credentials"
+
+
+def test_the_context_requires_tls_1_2_whatever_the_platform_allows(monkeypatch):
+	"""Even where the platform's default context allows TLS 1.0 (an old
+	OpenSSL configuration), LDAPS asks for TLS 1.2 or newer."""
+	default = ssl.create_default_context
+
+	def lax() -> ssl.SSLContext:
+		context = default()
+		context.minimum_version = ssl.TLSVersion.TLSv1
+		return context
+	monkeypatch.setattr(ldap.ssl, "create_default_context", lax)
+	assert ldap.VerifiedTls().context().minimum_version == ssl.TLSVersion.TLSv1_2

@@ -6,6 +6,14 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Security
+
+What GitHub's code scanning (CodeQL) found that was worth changing; its other findings were reviewed and dismissed with their reasons (test code, deliberate, or already checked in a way it doesn't recognise).
+
+- A page that sends you back where you came from - an admin page opened by an operator, a form missing a field - follows the browser's Referer only when it's a page of this NetRollout, else goes to the dashboard (or the home page). It followed any Referer, so a link from another site bounced back there. One rule now, the one Cancel already used.
+- Server Management's directory browser refuses a DN that isn't one ("… is not a valid DN.") before asking the directory.
+- LDAPS asks for TLS 1.2 or newer itself, instead of relying on the platform's default.
+
 ## [1.1.1] - 2026-10-26
 
 Polish found while taking 1.1.0's screenshots. An installed 1.1.0 updates from NetRollout Manager (**Upgrade**) or Linux's `netrollout.sh upgrade`, keeping everything; a before-upgrade backup is made first. No database change.

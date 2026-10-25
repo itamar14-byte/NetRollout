@@ -204,3 +204,23 @@ def test_tree_labels_use_the_first_value_else_the_rdn(server):
 		{"type": "user", "dn": "cn=Kim Lee,dc=corp,dc=test", "label": "Kim Lee",
 		 "username": "Kim Lee"},
 	]}
+
+
+@pytest.mark.parametrize("dn", ["not a dn", "cn=a,,dc=b"])
+def test_browsing_a_malformed_dn_is_refused_without_asking_the_directory(server, dn):
+	"""walk_tree with a DN that isn't one: status error, "not a valid DN" -
+	the directory isn't bound to nor searched."""
+	with patch.object(ldap.Directory, "service_bind") as bind:
+		answer = ldap.Directory(server).walk_tree(dn)
+	assert answer == {"status": "error", "message": f"{dn!r} is not a valid DN."}
+	bind.assert_not_called()
+
+
+def test_browsing_a_valid_dn_searches_it(server):
+	"""A well-formed DN is searched, one level below it."""
+	conn = MagicMock()
+	conn.entries = []
+	with patch.object(ldap.Directory, "service_bind", return_value=conn):
+		answer = ldap.Directory(server).walk_tree("ou=Lab,dc=corp,dc=test")
+	assert answer == {"status": "ok", "entries": []}
+	assert conn.search.call_args.kwargs["search_base"] == "ou=Lab,dc=corp,dc=test"

@@ -6,7 +6,6 @@ import uuid
 from collections.abc import Callable, Collection, Iterator, Mapping
 from itertools import groupby
 from typing import Any
-from urllib.parse import urlsplit
 
 from flask import Blueprint, render_template, request, flash, redirect, url_for, Response
 from flask.typing import ResponseReturnValue
@@ -22,7 +21,7 @@ from src.rollout.engine import Device, RolloutOptions, missing_value
 from src.rollout.inputs import InputParser, command_lines
 from src.webapp.app import current_app
 from src.webapp.device_holds import busy_message, holds
-from src.webapp.http import Refused, ok, err, with_form, with_json, Caller, viewer
+from src.webapp.http import Refused, back, ok, err, with_form, with_json, Caller, viewer
 
 bp = Blueprint('rollout', __name__, url_prefix='/rollout')
 
@@ -225,7 +224,7 @@ def cancel_rollout(data: Any) -> ResponseReturnValue:
 		if scripted:
 			return err(message, code)
 		flash(f"The rollout could not be cancelled: {message}.", "danger")
-		return redirect(_back())
+		return redirect(back("jobs.active_jobs"))
 
 	raw = data.get("job_id", "").strip()
 	try:
@@ -242,17 +241,7 @@ def cancel_rollout(data: Any) -> ResponseReturnValue:
 		return ok("canceled")
 	flash("Queued rollout cancelled - it never started." if queued else
 	      "Rollout cancelled - devices it has not reached are skipped.", "success")
-	return redirect(_back())
-
-
-def _back() -> str:
-	""":returns: where a page's form goes back to - the referring page's path
-	 on this site (not its query: Active Jobs' auto-reload adds ?_bg=1,
-	 which marks a request as background), else Active Jobs"""
-	referrer = urlsplit(request.referrer or "")
-	if referrer.netloc == request.host and referrer.path.startswith("/"):
-		return referrer.path
-	return url_for("jobs.active_jobs")
+	return redirect(back("jobs.active_jobs"))
 
 
 @bp.route("/new")

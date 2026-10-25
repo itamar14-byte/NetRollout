@@ -141,3 +141,30 @@ def test_logger_publishes_history_and_live_messages(app):
 	logger.live_log.close()
 	assert client.exists("job:job-int:history") == 0
 	pubsub.close()
+
+
+@pytest.mark.parametrize("referer, back", [
+	("https://evil.example/phish", "/dashboard"),          # another site: not followed
+	("https://localhost/inventory?x=1", "/inventory"),     # this site: its page
+	(None, "/dashboard"),
+])
+def test_an_admin_page_sends_a_non_admin_back_only_within_this_site(client_for, make_user,
+                                                                   referer, back):
+	"""An operator opening an admin page goes back to the page they came from
+	when it's NetRollout's, else to the dashboard - never to another site."""
+	headers = {"Referer": referer} if referer else {}
+	resp = client_for(make_user()).get("/admin/users", headers=headers)
+	assert resp.status_code == 302 and resp.headers["Location"] == back
+
+
+@pytest.mark.parametrize("referer, back", [
+	("https://evil.example/phish", "/"),
+	("https://localhost/active_jobs?_bg=1", "/active_jobs"),
+])
+def test_a_form_missing_a_field_goes_back_only_within_this_site(client_for, make_user,
+                                                               referer, back):
+	"""A form posted without a required field is sent back to the page it
+	came from when that's NetRollout's, else to the home page."""
+	resp = client_for(make_user()).post("/rollout/cancel", data={},
+	                                    headers={"Referer": referer})
+	assert resp.status_code == 302 and resp.headers["Location"] == back
