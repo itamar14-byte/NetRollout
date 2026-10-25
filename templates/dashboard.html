@@ -138,6 +138,21 @@
 }
 .sys-row:last-child { border-bottom: none; padding-bottom: 0; }
 
+/* ── Devices in rollouts: a line per box, its rollout's owner and state ── */
+.held-row { gap: 0.75rem; }
+.held-row .held-device { min-width: 0; }
+.held-row .held-device .term { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.held-row .held-owner { text-align: right; flex-shrink: 0; }
+.held-row .held-owner .term { display: block; }
+.held-dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: #00bcd4; margin-right: 0.35rem; vertical-align: middle;
+    animation: held-pulse 1.6s ease-in-out infinite;
+}
+.held-dot.queued { background: #555; animation: none; }
+@keyframes held-pulse { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .held-dot { animation: none; } }
+
 {% endblock %}
 
 {% block operator_content %}
@@ -350,6 +365,37 @@
          RIGHT COL - System Summary
     ══════════════════════════════════════ -->
     <div class="col-12 col-xl-4 d-flex flex-column gap-3">
+
+        {% if in_rollouts %}
+        <!-- Devices in rollouts: another rollout to them is refused until theirs ends -->
+        {% set shown = 6 %}
+        <div class="dash-animate" style="animation-delay:0.05s; opacity:0;">
+        <div class="nr-card">
+            <div class="nr-card-accent"></div>
+            <div class="nr-card-body" style="padding:1.5rem;">
+                <div class="nr-badge" style="margin-bottom:0.5rem;">IN FLIGHT</div>
+                <div class="nr-section-title">Devices in rollouts</div>
+                <p class="nr-help-text" style="margin:-0.25rem 0 0.25rem;">A device takes one rollout at a time - these are free when theirs ends.</p>
+                {% for d in in_rollouts[:shown] %}
+                <div class="sys-row held-row" title="{{ d.text }}">
+                    <div class="held-device">
+                        <span class="term bright"><span class="held-dot {{ d.state }}" aria-hidden="true"></span>{{ d.label }}</span>
+                        <span class="term" style="font-size:0.7rem;">{{ d.target }}</span>
+                    </div>
+                    <div class="held-owner">
+                        <span class="term {{ 'cyan' if d.mine else 'bright' }}">{{ 'yours' if d.mine else d.user }}</span>
+                        <span class="term" style="font-size:0.7rem;">{{ d.state ~ (' since ' ~ d.since if d.since and d.state == 'running' else '') }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+                <div class="d-flex justify-content-between align-items-center" style="margin-top:0.75rem;">
+                    <span class="term" style="font-size:0.7rem;">{% if in_rollouts|length > shown %}+{{ in_rollouts|length - shown }} more{% endif %}</span>
+                    <a href="{{ url_for('jobs.active_jobs') }}" class="term cyan" style="font-size:0.75rem; text-decoration:none;">Active Jobs <i class="bi bi-arrow-right"></i></a>
+                </div>
+            </div>
+        </div>
+        </div>
+        {% endif %}
 
         <!-- System Summary -->
         <div class="dash-animate" style="animation-delay:0.1s; opacity:0;">

@@ -169,6 +169,19 @@
     background: rgba(255,183,77,0.08); border-radius: 4px; padding: 0.05rem 0.35rem;
     white-space: nowrap;
 }
+/* In a rollout now (holds()): another rollout to it is refused until that one ends */
+.in-rollout-badge {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.6rem; font-weight: 700;
+    letter-spacing: 0.08em; color: #80deea; border: 1px solid rgba(0,188,212,0.4);
+    background: rgba(0,188,212,0.08); border-radius: 4px; padding: 0.05rem 0.35rem;
+    white-space: nowrap; display: inline-flex; align-items: center; gap: 0.3rem;
+}
+.in-rollout-badge::before {
+    content: ''; width: 5px; height: 5px; border-radius: 50%; background: #00bcd4;
+    animation: in-rollout-pulse 1.6s ease-in-out infinite;
+}
+@keyframes in-rollout-pulse { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .in-rollout-badge::before { animation: none; } }
 .needs-profile-note {
     display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem 0.75rem;
     margin: -0.75rem 0 1.25rem; padding: 0.55rem 0.8rem; border-radius: 8px;
@@ -491,6 +504,11 @@
             {% if not my_profile %}
             <span class="needs-profile-badge"
                   title="You have no security profile on this device: link one to roll out to it">ACTION NEEDED</span>
+            {% endif %}
+
+            {% set hold = held.get(device.id|string) %}
+            {% if hold %}
+            <span class="in-rollout-badge" title="{{ hold.text }}">IN ROLLOUT</span>
             {% endif %}
 
             <!-- Reachability from NetRollout - filled in after load -->

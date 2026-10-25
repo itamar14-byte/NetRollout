@@ -83,6 +83,20 @@ class TestIPv6(unittest.TestCase):
 		self.assertEqual(endpoint("2001:db8::1", 2222), "[2001:db8::1]:2222")
 		self.assertEqual(make_device(ip="2001:db8::1").endpoint, "[2001:db8::1]:22")
 
+	def test_a_target_is_the_box_a_hostname_resolved_to(self):
+		"""Device.target: an IP is itself with its port (IPv6 in brackets); a
+		hostname counts as the address its reachability check resolved it to,
+		so a name and its IP are one target; a name the check didn't resolve
+		is kept as connected to (the DNS suffix added); the port tells two
+		boxes behind one address apart."""
+		resolved = {"r1": "10.10.10.11"}
+		self.assertEqual(make_device(ip="10.10.10.11").target(resolved), "10.10.10.11:22")
+		self.assertEqual(make_device(ip="r1").target(resolved), "10.10.10.11:22")
+		self.assertEqual(make_device(ip="r1", port=2222).target(resolved), "10.10.10.11:2222")
+		self.assertEqual(make_device(ip="r2", dns_suffix="lab.local").target(resolved), "r2.lab.local:22")
+		self.assertEqual(make_device(ip="r2").target(), "r2:22")
+		self.assertEqual(make_device(ip="2001:db8::1").target(), "[2001:db8::1]:22")
+
 	def test_an_address_is_kept_in_its_standard_form(self):
 		"""normalize_ip writes an IPv6 address the one standard way (lower
 		case, zeros compressed), so one device has one spelling; IPv4 is

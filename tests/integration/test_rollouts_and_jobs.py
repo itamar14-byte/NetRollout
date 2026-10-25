@@ -18,7 +18,7 @@ from src import runtime
 from src.accounts.users import Viewer
 from src.db.settings import SETTINGS
 from src.db.tables import AuditLog, DeviceCredential, DeviceResult, Inventory, JobMetadata
-from src.jobs import Draining, RolloutJob
+from src.jobs import DeviceBusy, Draining, RolloutJob
 from src.results import EXPORT_COLUMNS, JOB_STATUSES, JobResults, job_status
 from src.accounts.users import Viewer
 
@@ -134,7 +134,7 @@ def test_a_stop_between_two_platforms_leaves_nothing_queued(
 	is audited."""
 	queued = []
 
-	def submit(devices, commands, params, user_id, comment=None):
+	def submit(devices, commands, params, user_id, comment=None, addresses=None):
 		if queued:
 			raise Draining()
 		queued.append(uuid.uuid4())
@@ -474,7 +474,7 @@ def test_a_multi_platform_start_failing_on_its_second_platform_cancels_the_first
 	is audited."""
 	queued = []
 
-	def submit(devices, commands, params, user_id, comment=None):
+	def submit(devices, commands, params, user_id, comment=None, addresses=None):
 		if queued:
 			raise RuntimeError("simulated: Redis went away")
 		queued.append(uuid.uuid4())
@@ -490,6 +490,159 @@ def test_a_multi_platform_start_failing_on_its_second_platform_cancels_the_first
 	assert cancelled == queued and len(queued) == 1
 	with session_scope() as s:
 		assert not s.query(AuditLog).filter_by(action="rollout.start").count()
+
+
+# ── A device takes one rollout at a time ─────────────────────────────────────
+
+def hold(app, monkeypatch, user, *targets):
+	"""A running job of `user`'s in the orchestrator, holding these targets
+	(ip:port) as a submitted one does; :returns: the job"""
+	job = FakeRunningJob(user.id)
+	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
+	for target in targets:
+		monkeypatch.setitem(app.orchestrator._held, target, job.job_id)
+	return job
+
+
+def flashed(client):
+	""":returns: the one message flashed"""
+	with client.session_transaction() as s:
+		(_category, message), = s["_flashes"]
+	return message
+
+
+def test_a_launch_to_a_device_in_another_users_rollout_is_refused(
+		app, operator, client_for, make_user, monkeypatch, captured_submits):
+	"""A device another user's running rollout holds: the launch is refused,
+	nothing submitted, and the flash names the device, its ip:port, the
+	owner and since when."""
+	other = make_user(username="pc-op")
+	hold(app, monkeypatch, other, "10.0.0.1:22")
+	client = client_for(operator.user)
+	resp = client.post("/rollout/start", data={
+		"device_ids": [str(operator.ios)], "manual_commands": "hostname x"})
+	assert resp.headers["Location"] == "/rollout/new"
+	assert captured_submits == []
+	message = flashed(client)
+	assert message.startswith("In another rollout - rollout blocked: dev-10.0.0.1 (10.0.0.1:22)")
+	assert "pc-op's rollout, running since" in message
+
+
+def test_a_launch_to_a_device_in_your_own_rollout_says_yours(
+		app, operator, client_for, monkeypatch, captured_submits):
+	"""Your own running rollout holds it: refused the same way, "your rollout"."""
+	hold(app, monkeypatch, operator.user, "10.0.0.1:22")
+	client = client_for(operator.user)
+	client.post("/rollout/start", data={
+		"device_ids": [str(operator.ios)], "manual_commands": "hostname x"})
+	assert captured_submits == []
+	assert "your rollout, running since" in flashed(client)
+
+
+def test_a_device_saved_by_name_is_held_through_its_address(
+		app, operator, client_for, make_user, make_profile, make_device,
+		monkeypatch, captured_submits, fake_dns):
+	"""A rollout holds 10.0.0.5; a device saved by a name that resolves to it
+	at launch is the same box: refused, named by its label."""
+	by_name = make_device(operator.user, ip="core5.corp.local", label="CORE-5",
+	                      profile_id=make_profile(operator.user, label="core5"))
+	fake_dns["core5.corp.local"] = ["10.0.0.5"]
+	hold(app, monkeypatch, make_user(), "10.0.0.5:22")
+	client = client_for(operator.user)
+	client.post("/rollout/start", data={"device_ids": [str(by_name)], "manual_commands": "x"})
+	assert captured_submits == []
+	assert "CORE-5 (10.0.0.5:22)" in flashed(client)
+
+
+def test_a_multi_platform_launch_with_one_held_device_queues_nothing(
+		app, operator, client_for, make_user, monkeypatch, captured_submits):
+	"""Of two platforms only the second's device is held: no job is queued
+	for the first either (checked before any is)."""
+	hold(app, monkeypatch, make_user(), "10.0.0.1:22")   # cisco_ios: submitted second
+	client_for(operator.user).post("/rollout/start", data={
+		"device_ids": [str(operator.ios), str(operator.eos)],
+		"platform_commands": json.dumps({"arista_eos": "hostname b",
+		                                 "cisco_ios": "hostname a"})})
+	assert captured_submits == []
+
+
+def test_a_device_claimed_between_the_check_and_the_submit_is_refused_in_words(
+		app, operator, client_for, make_user, monkeypatch, session_scope):
+	"""Another launch claims the device after the route's check: submit()
+	raises DeviceBusy, and the launch is refused with the same words - no
+	rollout.start audited."""
+	other = make_user(username="racer")
+	held = hold(app, monkeypatch, other)
+
+	def submit(devices, commands, params, user_id, comment=None, addresses=None):
+		raise DeviceBusy({"10.0.0.1:22": held.row()})
+	monkeypatch.setattr(app.orchestrator, "submit", submit)
+	client = client_for(operator.user)
+	resp = client.post("/rollout/start", data={
+		"device_ids": [str(operator.ios)], "manual_commands": "hostname x"})
+	assert resp.headers["Location"] == "/rollout/new"
+	assert "racer's rollout" in flashed(client)
+	with session_scope() as s:
+		assert not s.query(AuditLog).filter_by(action="rollout.start").count()
+
+
+def test_a_rollback_to_a_held_device_is_refused(
+		app, operator, client_for, session_scope, make_user, monkeypatch, captured_submits):
+	"""A rollback to a device another rollout holds: 409 with the owner named,
+	nothing submitted."""
+	job = uuid.uuid4()
+	add_result(session_scope, operator.user, job, ip="10.0.0.1")
+	hold(app, monkeypatch, make_user(username="holder"), "10.0.0.1:22")
+	resp = client_for(operator.user).post(f"/rollout/rollback/{job}",
+	                                      json={"commands": "no hostname"})
+	assert resp.status_code == 409
+	assert "holder's rollout" in resp.json["message"]
+	assert captured_submits == []
+
+
+def test_a_launch_passes_the_resolved_addresses_to_the_submit(
+		operator, client_for, make_profile, make_device, captured_submits, fake_dns):
+	"""The orchestrator holds a hostname as the address the launch resolved:
+	the route hands it the reachability check's addresses."""
+	by_name = make_device(operator.user, ip="core6.corp.local",
+	                      profile_id=make_profile(operator.user, label="core6"))
+	fake_dns["core6.corp.local"] = ["10.0.0.6"]
+	client_for(operator.user).post("/rollout/start", data={
+		"device_ids": [str(by_name)], "manual_commands": "x"})
+	(call,) = captured_submits
+	assert call.addresses == {"core6.corp.local": "10.0.0.6"}
+
+
+def test_new_rollout_shows_whose_rollout_holds_a_device(
+		app, operator, client_for, make_user, monkeypatch):
+	"""New Rollout marks a held device with whose rollout holds it; the
+	Recheck route (/rollout/held) answers the same for the devices you see -
+	and nothing for a device you don't."""
+	hold(app, monkeypatch, make_user(username="pc-op"), "10.0.0.1:22", "10.77.0.1:22")
+	client = client_for(operator.user)
+	html = client.get("/rollout/new").get_data(as_text=True)
+	assert "In pc-op&#39;s rollout - running since" in html
+	held = client.get("/rollout/held").json["held"]
+	assert set(held) == {str(operator.ios)}
+	assert held[str(operator.ios)]["user"] == "pc-op" and held[str(operator.ios)]["state"] == "running"
+	assert held[str(operator.ios)]["job_id"] is None    # not theirs, not an admin
+
+
+def test_inventory_and_the_dashboard_show_devices_in_a_rollout(
+		app, operator, client_for, make_user, monkeypatch):
+	"""Inventory badges a held device IN ROLLOUT with whose rollout; the
+	dashboard's Devices in rollouts card lists it (label, ip:port, owner) -
+	and isn't there when nothing is held."""
+	client = client_for(operator.user)
+	card = '<div class="nr-section-title">Devices in rollouts</div>'
+	assert card not in client.get("/dashboard").get_data(as_text=True)
+	hold(app, monkeypatch, make_user(username="pc-op"), "10.0.0.1:22")
+	inventory = client.get("/inventory").get_data(as_text=True)
+	assert re.search(r'class="in-rollout-badge" title="In pc-op&#39;s rollout - running since [^"]+">IN ROLLOUT', inventory)
+	assert inventory.count("in-rollout-badge\" title") == 1     # the held device only
+	dashboard = client.get("/dashboard").get_data(as_text=True)
+	assert card in dashboard
+	assert "dev-10.0.0.1" in dashboard and "10.0.0.1:22" in dashboard and "pc-op" in dashboard
 
 
 def test_rollback_targets_successful_devices_once_per_ip(

@@ -151,6 +151,7 @@ It shows:
 
 - **Active rollout**: your rollout that is running or queued, with **Cancel**. If none is running, **Launch Rollout** starts one.
 - **Recent activity**: your last 5 rollouts and their status. A job with a problem that needs a person is marked **Action needed - open the job**. **View all** opens Results.
+- **Devices in rollouts** (only while there are any): the devices you see that a rollout is configuring or waiting to configure, with whose rollout it is and since when. See [One rollout per device](#one-rollout-per-device).
 - **Summary**: how many devices, security profiles and variable mappings you have, your total rollouts and the last status.
 - **Your 30-day numbers**: success rate, device pushes, commands pushed, and the device with the most failures.
 - **Quick actions**: **Manage Inventory**, **View All Results**.
@@ -197,6 +198,8 @@ Two devices can share an address if their ports differ, for example behind NAT. 
 Each card shows whether NetRollout's server can reach the device's `ip:port` over TCP. This is checked from the server, not from your computer, because that's where the push comes from. Results are reused for a short time (60 seconds unless your administrator changed it). Select **Recheck** to probe every device again now.
 
 The device's logo follows it: in its vendor's colors while the device is reachable, grey while it's being checked or when it isn't. New Rollout's device list shows it the same way.
+
+A card marked **IN ROLLOUT** is in a running or queued rollout; its tooltip says whose. See [One rollout per device](#one-rollout-per-device).
 
 ## Importing devices from a CSV
 
@@ -315,7 +318,7 @@ Open **Launch Rollout**.
 
 ![The New Rollout page](images/new-rollout.png)
 
-1. **Select Devices.** Tick the devices, or use **Select all**. **Filter by label or IP** narrows the list. A device without your security profile can't be ticked; link one in Inventory. **Recheck** probes reachability again.
+1. **Select Devices.** Tick the devices, or use **Select all**. **Filter by label or IP** narrows the list. A device that can't be ticked says why with a tag, and its tooltip says more: **NO PROFILE** (link one of your security profiles in Inventory), **UNREACHABLE** (NetRollout's server can't reach it now), **IN ROLLOUT** (another rollout holds it - see [One rollout per device](#one-rollout-per-device)). **Recheck** probes reachability again and looks again at which devices are in a rollout.
 2. **Commands.** Give the commands for the devices you ticked, one per line, as you would type them in configuration mode. Type or paste them in the box, or click **Load from file…** to put a `.txt` file's commands in it (UTF-8): you see them, and can edit them, before you launch. Don't add `configure terminal`, `write memory` or `commit`: NetRollout enters configuration mode and saves or commits the way each platform needs. If you tick devices of more than one platform, you see **Multiple platforms selected**, and you give one command set per platform.
 3. **Rollout Note** (optional): up to 255 characters, such as a change or ticket number. It's shown in Results.
 4. **Options:**
@@ -337,6 +340,14 @@ A rollout configures several devices in parallel: 10 at a time unless your admin
 ### The queue
 
 NetRollout runs a limited number of rollouts at once: 4 unless your administrator changed it. A rollout launched while all slots are busy waits in a queue and shows **Queued - waiting for a free slot** until one frees up. When it starts, its log's first line says how long it waited.
+
+### One rollout per device
+
+A device takes one rollout at a time. From the moment a rollout is launched - while it waits in the queue too - until it ends, its devices are held, and a rollout that includes any of them is refused: "In another rollout - rollout blocked: R1 (10.10.10.11:22) - pc-op's rollout, running since 16:02:11. A device takes one rollout at a time: try again when it ends, or leave it out." Nothing of the refused rollout is queued, not even its other devices or platforms. Two pushes to one device at once would interleave their configuration sessions, and each rollout's verification and rollback would take the other's changes for its own.
+
+A device is one box whoever's entry it is: your own device, a global one and another user's entry for the same `ip:port` are the same device, and a device saved by name counts as the address it resolves to. That's why the message names the other rollout's owner. A rollback is a rollout too, and is refused the same way. Rollouts run by the [CLI](cli.md) aren't counted: it works on its own, without NetRollout's server. Nor can NetRollout know that two different addresses reach the same device.
+
+New Rollout, Inventory and the dashboard show which devices are held; the check that counts is the one made when you launch.
 
 ### Verify
 
@@ -484,7 +495,7 @@ What it does exactly:
 - **Which commands**: the same commands to every one of those devices, whatever their platform.
 - **Whose credentials**: yours, never the job owner's. NetRollout logs in with your own profile on each device. If you have no profile on some devices, the rollback window lists them and asks you to pick one of your profiles. **Link it to the device** (ticked by default) keeps it as your profile for those devices, for next time. An administrator rolling back someone else's job may hit that person's private devices: the profile picked is used for this rollback only, since you can't link to a device that isn't yours.
 - **Whose values**: the job owner's. Their mappings and values fill in the tokens, so the rollback targets what the job configured. Values are read when you start the rollback, not taken from the original job, so check they still reflect the network.
-- **Checks first**: as for any rollout, every device must be reachable and resolve every token, or the rollback is refused with the reason.
+- **Checks first**: as for any rollout, every device must be reachable, resolve every token and be in no other rollout, or the rollback is refused with the reason.
 - **Whose job**: the rollback is a new job under your name, shown in Active Jobs and Results. The audit log records it against the original job.
 
 You can roll back your own jobs. Administrators can roll back anyone's.

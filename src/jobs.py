@@ -30,7 +30,7 @@ import sys
 import threading
 import time
 import uuid
-from collections.abc import Iterator, Sequence
+from collections.abc import Collection, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any, cast, Callable
@@ -330,6 +330,17 @@ class Draining(Exception):
 		super().__init__(message)
 
 
+class DeviceBusy(Exception):
+	"""submit() to a device another queued or running rollout holds: two
+	pushes to one box at once would interleave their sessions, and each
+	job's verification and rollback would take the other's changes for its
+	own. Carries the clashes, not a message: the route names the owners."""
+	def __init__(self, conflicts: dict[str, RolloutRow]):
+		""":param conflicts: target (ip:port) -> the row of the job holding it"""
+		super().__init__(", ".join(conflicts))
+		self.conflicts = conflicts
+
+
 class Paused(Draining):
 	"""submit() while rollouts are paused for a database move (pause())."""
 	def __init__(self) -> None:
@@ -533,6 +544,9 @@ class RolloutOrchestrator:
 		self._store = JobStore(backend_obj.redis)
 		self._slots = threading.Semaphore(max_concurrent)
 		self._jobs: dict[uuid.UUID, RolloutJob] = {}
+		# target (ip:port) -> the queued or running job holding it: claimed in
+		# submit(), released with the job (_remove) - both under _lock
+		self._held: dict[str, uuid.UUID] = {}
 		self._lock = threading.Lock()
 		self._draining = False
 		self._paused = False
@@ -579,25 +593,39 @@ class RolloutOrchestrator:
 
 	def submit(self, devices: list[Device], commands: list[str], params:
 	RolloutOptions, user_id: uuid.UUID,
-	           comment: str | None = None) -> uuid.UUID:
-		"""Queue a rollout; it starts when a slot is free.
+	           comment: str | None = None,
+	           addresses: Mapping[str, str] | None = None) -> uuid.UUID:
+		"""Queue a rollout; it starts when a slot is free. Its devices are
+		held from now until it ends: checked and claimed in one step, under
+		the lock, so of two rollouts to one device at once exactly one is
+		queued.
 
 		:param devices: the targets, credentials resolved
 		:param commands: what's pushed, in order (variables resolved per device)
 		:param params: verify, verbose, parallelism
 		:param user_id: who starts it
 		:param comment: the job's note (Results, Active Jobs)
+		:param addresses: hostname -> the address its reachability check
+		 resolved (Device.target); without it a name is held as written
 		:returns: the new job's id
 		:raises Draining: NetRollout is stopping or restarting
-		:raises Paused: rollouts are paused for a database move"""
+		:raises Paused: rollouts are paused for a database move
+		:raises DeviceBusy: another queued or running rollout holds a device"""
 		self._refuse_if_closed()   # before RolloutJob: it creates the log file
+		targets = {d.target(addresses) for d in devices}
+		if busy := self.conflicts(targets):   # before RolloutJob: its log file
+			raise DeviceBusy(busy)
 		engine = RolloutEngine(params, devices, commands)
 		job = RolloutJob(uuid.uuid4(), user_id, engine, params,
 		                 redis_client=self._backend.redis.client)
 
 		with self._lock:
 			self._refuse_if_closed()
+			if busy := self._conflicts(targets):   # claimed since the check above
+				raise DeviceBusy(busy)
 			self._jobs[job.job_id] = job
+			for target in targets:
+				self._held[target] = job.job_id
 
 		added = False
 		try:
@@ -621,7 +649,7 @@ class RolloutOrchestrator:
 
 		:param added: whether JobStore.add completed (it counted the job)"""
 		with self._lock:
-			self._jobs.pop(job.job_id, None)
+			self._remove(job.job_id)
 		def gone() -> None:
 			if added:
 				self._store.finished(job.job_id, job.user_id, was_running=False)
@@ -633,6 +661,36 @@ class RolloutOrchestrator:
 				undo()
 			except Exception:     # noqa: BLE001 - the submit's own error is what's raised
 				pass
+
+	def _remove(self, job_id: uuid.UUID) -> RolloutJob | None:
+		"""A job out of the table and its devices free - the one way a job
+		leaves (finished, cancelled, withdrawn, drained). Called under the lock.
+
+		:returns: the job; None when it wasn't here"""
+		for target in [t for t, holder in self._held.items() if holder == job_id]:
+			del self._held[target]
+		return self._jobs.pop(job_id, None)
+
+	def _conflicts(self, targets: Collection[str]) -> dict[str, RolloutRow]:
+		"""conflicts(), called under the lock."""
+		return {t: self._jobs[self._held[t]].row() for t in targets if t in self._held}
+
+	def conflicts(self, targets: Collection[str]) -> dict[str, RolloutRow]:
+		"""Which of these devices a queued or running rollout holds - the
+		routes' check before they queue anything (a rollout of several
+		platforms is a job per platform: none is queued when one would be
+		refused); submit() checks again.
+
+		:param targets: ip:port each (Device.target)
+		:returns: target -> the holding job's row; {} when all are free"""
+		with self._lock:
+			return self._conflicts(targets)
+
+	def busy(self) -> dict[str, RolloutRow]:
+		""":returns: every device held: target (ip:port) -> the row of the
+		 queued or running job holding it (New Rollout, Inventory, the dashboard)"""
+		with self._lock:
+			return self._conflicts(list(self._held))
 
 	def refusal(self) -> str | None:
 		"""Why a new rollout would be refused now (for people), or None."""
@@ -815,7 +873,7 @@ class RolloutOrchestrator:
 			print(f"[NetRollout] Couldn't record queued rollout {job.job_id} "
 			      f"as cancelled ({e})", flush=True)
 			with self._lock:   # else the drain would wait for it as "running"
-				self._jobs.pop(job.job_id, None)
+				self._remove(job.job_id)
 
 	def _finalize(self, job_id: uuid.UUID, was_running: bool = True) -> None:
 		"""A job is over: its results to Postgres, its keys out of Redis, its
@@ -823,7 +881,7 @@ class RolloutOrchestrator:
 		down at that moment must not lose the results (they go to a file
 		then) nor leave the job "active" forever."""
 		with self._lock:
-			job = self._jobs.pop(job_id, None)
+			job = self._remove(job_id)
 			if job:
 				self._recorder.begin()   # idle() waits for the results
 		if not job:

@@ -19,6 +19,7 @@ from src.rollout.engine import endpoint
 from src.rollout.inputs import InputParser, Validator
 from src.rollout.log import RolloutLogger, Tone
 from src.webapp.app import current_app
+from src.webapp.device_holds import holds
 from src.webapp.hooks import signed_in_user
 from src.webapp.http import ok, err, own_server, with_form, with_json, flash_redirect, viewer
 
@@ -101,6 +102,7 @@ def inventory() -> str:
 	                       sys_props=sys_props,
 	                       user_props=user_props,
 	                       attributes=values,
+	                       held=holds(devices),    # devices in a rollout now: by whom
 	                       dns_suffix=current_app.web.dns_suffix(),
 	                       active_section="inventory")
 

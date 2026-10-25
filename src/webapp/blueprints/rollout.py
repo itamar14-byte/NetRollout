@@ -16,12 +16,12 @@ from src.audit import AuditAction
 from src.accounts.users import Viewer
 from src.db.tables import Inventory, JobMetadata, SecurityProfile, User
 from src.inventory import InventoryView, RuleRefused, SecurityProfiles, partition_devices, resolved_addresses
-from src.jobs import QUEUED_LINE, Draining
+from src.jobs import QUEUED_LINE, DeviceBusy, Draining
 from src.results import JobResults
-from src.rollout.address import is_ip
-from src.rollout.engine import Device, RolloutOptions, endpoint, missing_value
+from src.rollout.engine import Device, RolloutOptions, missing_value
 from src.rollout.inputs import InputParser, command_lines
 from src.webapp.app import current_app
+from src.webapp.device_holds import busy_message, holds
 from src.webapp.http import Refused, ok, err, with_form, with_json, Caller, viewer
 
 bp = Blueprint('rollout', __name__, url_prefix='/rollout')
@@ -110,17 +110,16 @@ def duplicate_targets(devices: list[Device],
 
 	:param addresses: hostname (as saved) -> address (resolved_addresses)
 	:returns: ip:port → the labels selected for it, where more than one"""
-	by_target: dict[tuple[str, int], list[Device]] = {}
+	by_target: dict[str, list[Device]] = {}
 	for d in devices:
-		address = d.host if is_ip(d.host) else addresses.get(d.ip, d.host)
-		by_target.setdefault((address, d.port), []).append(d)
+		by_target.setdefault(d.target(addresses), []).append(d)
 	duplicates: dict[str, list[str]] = {}
 	reported: set[frozenset[int]] = set()
-	for (address, port), shared in by_target.items():
+	for target, shared in by_target.items():
 		group = frozenset(id(d) for d in shared)
 		if len(group) > 1 and group not in reported:
 			reported.add(group)
-			duplicates[endpoint(address, port)] = [d.label or d.ip for d in shared]
+			duplicates[target] = [d.label or d.ip for d in shared]
 	return duplicates
 
 
@@ -166,20 +165,23 @@ def unresolved_message(devices: list[Device], commands_of: Callable[[Device], li
 def submit_jobs(devices: list[Device], commands: list[str] | None,
                 platform_commands_map: dict[str, str], is_multi_platform: bool,
                 options: RolloutOptions,
-                audit_comment: str | None) -> uuid.UUID:
+                audit_comment: str | None, addresses: dict[str, str]) -> uuid.UUID:
 	"""Queue the rollout: one job, or one per platform with its own commands -
 	all of them or none: every platform's commands are checked before the
 	first job is queued, and if queuing one fails (NetRollout starts
 	stopping or pauses for a database move between two platforms, a service
 	fails), the jobs already queued are cancelled.
 
+	:param addresses: hostname -> resolved address (the devices' targets)
 	:returns: the (first) job's id
 	:raises Refused: the platforms or their commands don't fit - the reason
-	:raises Draining: NetRollout is stopping, or paused for a database move"""
+	:raises Draining: NetRollout is stopping, or paused for a database move
+	:raises DeviceBusy: another rollout holds a device (the jobs already
+	 queued for other platforms cancelled)"""
 	if not is_multi_platform:
 		assert commands is not None   # parse_commands gives them for one platform
 		return current_app.orchestrator.submit(devices, commands, options,
-		                                       current_user.id, audit_comment)
+		                                       current_user.id, audit_comment, addresses)
 
 	# Backend enforces multi-platform - never trust the frontend alone.
 	actual_platforms = {d.device_type for d in devices}
@@ -199,7 +201,7 @@ def submit_jobs(devices: list[Device], commands: list[str] | None,
 		for group_devices, group_commands in jobs:
 			queued.append(current_app.orchestrator.submit(
 				group_devices, group_commands, options, current_user.id,
-				audit_comment))
+				audit_comment, addresses))
 	except Exception:   # stopping / paused, or a service failing: none or all
 		for job_id in queued:
 			current_app.orchestrator.cancel(job_id)
@@ -270,8 +272,20 @@ def new_rollout() -> str:
 	                       my_devices=my_devices,
 	                       token_states=tokens,
 	                       no_profile=no_profile,     # ids of devices without a profile of the user's
+	                       held=holds(devices),       # devices in a rollout now: by whom
 	                       active_section="rollout"
 	                       )
+
+
+@bp.route("/held")
+@login_required
+def held_devices() -> ResponseReturnValue:
+	"""The devices the user sees that are in a rollout now - New Rollout's
+	Recheck (holds())."""
+	with current_app.backend.postgres.get_session() as db_session:
+		devices = InventoryView(db_session, viewer()).visible()
+		db_session.expunge_all()
+	return ok(held=holds(devices))
 
 
 def token_states(devices: list[Inventory], values: dict[uuid.UUID, dict[str, Any]],
@@ -330,6 +344,10 @@ def start_rollout() -> tuple[uuid.UUID, list[Device], str | None]:
 			else commands or []):
 		raise Refused(blocked)
 
+	# before any job is queued: a rollout of several platforms is a job each
+	if busy := current_app.orchestrator.conflicts({d.target(addresses) for d in devices}):
+		raise Refused(busy_message(busy, devices, addresses))
+
 	options = RolloutOptions(
 		verify=bool(request.form.get("_verify", "")),
 		verbose=bool(request.form.get("_verbose", "")),
@@ -337,8 +355,11 @@ def start_rollout() -> tuple[uuid.UUID, list[Device], str | None]:
 		max_workers=current_app.backend.settings.get("device_parallelism")
 	)
 	audit_comment = request.form.get("comment", "").strip() or None
-	job_id = submit_jobs(devices, commands, platform_commands_map,
-	                     is_multi_platform, options, audit_comment)
+	try:
+		job_id = submit_jobs(devices, commands, platform_commands_map,
+		                     is_multi_platform, options, audit_comment, addresses)
+	except DeviceBusy as e:   # claimed by another launch since the check above
+		raise Refused(busy_message(e.conflicts, devices, addresses)) from None
 	return job_id, devices, audit_comment
 
 
@@ -508,11 +529,13 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 		                                            current_app.web.dns_suffix())
 	except ValueError as e:              # a device without a security profile
 		return err(f"Can't roll back: {e}.", 409)
-	unreachable, _ = check_reachability(devices, [row.id for row in rows])
+	unreachable, addresses = check_reachability(devices, [row.id for row in rows])
 	if unreachable:
 		return err(unreachable_message(unreachable), 409)
 	if blocked := unresolved_message(devices, lambda d: commands):
 		return err(blocked, 409)
+	if busy := current_app.orchestrator.conflicts({d.target(addresses) for d in devices}):
+		return err(busy_message(busy, devices, addresses), 409)
 	options = RolloutOptions(
 		verify=bool(data.get("verify", False)),
 		verbose=bool(data.get("verbose", False)),
@@ -520,10 +543,12 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 		max_workers=current_app.backend.settings.get("device_parallelism")
 	)
 	try:
-		new_job_id = current_app.orchestrator.submit(devices, commands,
-		                                              options, current_user.id)
+		new_job_id = current_app.orchestrator.submit(devices, commands, options,
+		                                              current_user.id, addresses=addresses)
 	except Draining as e:
 		return err(str(e), 503)
+	except DeviceBusy as e:   # claimed by another launch since the check above
+		return err(busy_message(e.conflicts, devices, addresses), 409)
 	current_app.web.audit(AuditAction.ROLLOUT_ROLLBACK, object_id=job_id,
 	                      detail={"new_job_id": str(new_job_id),
 	                              "device_count": len(devices),

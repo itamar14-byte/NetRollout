@@ -143,6 +143,31 @@
     flex-shrink: 0;
 }
 
+/* ── Why a row can't be selected: one chip per reason (the tooltip has the
+   details) - no profile of yours, not reachable, in another rollout ── */
+.state-chip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.625rem;
+    letter-spacing: 0.5px;
+    border-radius: 4px;
+    border: 1px solid;
+    padding: 0.05rem 0.4rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.state-chip--noprofile { color: #bdbdbd; background: #161616; border-color: #333; }
+.state-chip--down      { color: #ef9a9a; background: rgba(239,83,80,0.08); border-color: rgba(239,83,80,0.3); }
+/* cyan, as Inventory's IN ROLLOUT: amber is Inventory's ACTION NEEDED */
+.state-chip--held      { color: #80deea; background: rgba(0,188,212,0.08); border-color: rgba(0,188,212,0.4); }
+.state-chip--held { display: inline-flex; align-items: center; gap: 0.3rem; }
+.state-chip--held[hidden] { display: none; }
+.state-chip--held::before {
+    content: ''; width: 5px; height: 5px; border-radius: 50%; background: #00bcd4;
+    animation: held-pulse 1.6s ease-in-out infinite;
+}
+@keyframes held-pulse { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .state-chip--held::before { animation: none; } }
+
 /* ── No-profile tooltip ── */
 .device-row.disabled {
     position: relative;
@@ -427,10 +452,13 @@
 
 {% block operator_content %}
 {% macro device_row(device) %}
+                            {% set hold = held.get(device.id|string) %}
                             <label class="device-row disabled"
                                    data-device-id="{{ device.id }}"
                                    {% set lacks_profile = (device.id|string) in no_profile %}
                                    data-no-profile="{{ '1' if lacks_profile else '0' }}"
+                                   data-held="{{ '1' if hold else '' }}"
+                                   data-held-text="{{ hold.text if hold else '' }}"
                                    data-label="{{ (device.label or device.ip)|lower }}"
                                    data-ip="{{ device.ip|lower }}"
                                    data-endpoint="{{ device.ip | endpoint(device.port) }}"
@@ -473,6 +501,11 @@
                                 {# Filled in when its commands use a token that can't be filled in on it #}
                                 <span class="token-note" hidden></span>
 
+                                {# Why it can't be selected (the tooltip says more) #}
+                                <span class="state-chip state-chip--noprofile"{% if not lacks_profile %} hidden{% endif %}>NO PROFILE</span>
+                                <span class="state-chip state-chip--down" hidden>UNREACHABLE</span>
+                                <span class="state-chip state-chip--held"{% if not hold %} hidden{% endif %}>IN ROLLOUT</span>
+
                                 <span class="platform-tag">{{ device.device_type }}</span>
 
                                 {# Reachability from NetRollout - filled in by the page script #}
@@ -482,7 +515,7 @@
                                 {% if lacks_profile %}
                                 <span class="no-profile-tip">You have no security profile on it - link one in Inventory</span>
                                 {% else %}
-                                <span class="no-profile-tip reach-tip">Checking reachability…</span>
+                                <span class="no-profile-tip reach-tip">{{ hold.text if hold else 'Checking reachability…' }}</span>
                                 {% endif %}
                             </label>
 {% endmacro %}
@@ -559,6 +592,7 @@
                                 <div class="platform-summary" id="platformSummary"></div>
                             </div>
                             <div class="no-profile-warning" id="unreachWarning"></div>
+                            <div class="no-profile-warning" id="heldWarning" role="status"></div>
                             <div class="no-profile-warning" id="dupWarning" role="status"></div>
                             <div class="no-profile-warning" id="tokenWarning" role="status"></div>
                             <div class="no-profile-warning" id="noProfileWarning">
@@ -659,6 +693,10 @@
     /* ── Per device: the tokens you bound on it → null (it fills in) or why
        it can't. Devices without your mappings are absent. ── */
     const TOKEN_STATES = {{ token_states | tojson }};
+
+    /* ── Devices in a rollout now: device id → whose (holds()); Recheck
+       asks again ── */
+    const HELD = {{ held | tojson }};
     // a $$TOKEN$$ in a command - the engine's TOKEN_IN_COMMAND, exact case
     const TOKEN_RE = /\$\$[A-Za-z0-9_]{1,64}\$\$/g;
 
@@ -1041,7 +1079,32 @@
         if (tip) tip.textContent = text;
     }
 
+    /* A device in another rollout can't be selected until it ends (refused
+       on the server too): its chip and tooltip say whose, the footer counts */
+    const heldWarn = document.getElementById("heldWarning");
+    function applyHeld(held) {
+        let n = 0;
+        document.querySelectorAll(".device-row[data-device-id]").forEach(row => {
+            const hold = held[row.dataset.deviceId];
+            row.dataset.held = hold ? "1" : "";
+            row.dataset.heldText = hold ? hold.text : "";
+            row.querySelector(".state-chip--held").hidden = !hold;
+            if (hold) n++;
+        });
+        heldWarn.textContent = n
+            ? n + " device" + (n !== 1 ? "s are" : " is") + " in another rollout - " +
+              (n !== 1 ? "they" : "it") + " can't be selected until that rollout ends."
+            : "";
+        heldWarn.classList.toggle("show", n > 0);
+    }
+
     async function refreshReachability(refresh = false) {
+        if (refresh) {
+            try {
+                const resp = await fetch("{{ url_for('rollout.held_devices') }}");
+                if (resp.ok) applyHeld((await resp.json()).held);
+            } catch (e) { /* the launch checks again */ }
+        }
         const rows = [...document.querySelectorAll(".device-row[data-device-id]")];
         rows.forEach(row => {
             nrReachChecking(row.querySelector(".reach"));
@@ -1063,7 +1126,12 @@
         rows.forEach(row => {
             const status = statuses[row.dataset.deviceId];
             const state  = nrSetReach(row.querySelector(".reach"), status);
+            row.querySelector(".state-chip--down").hidden = state !== "down";
             if (row.dataset.noProfile === "1") return;   // stays disabled
+            if (row.dataset.held === "1") {              // stays disabled too
+                setRowTip(row, row.dataset.heldText);
+                return;
+            }
             const cb = row.querySelector(".device-cb");
             if (state === "up") {
                 cb.disabled = false;
@@ -1094,6 +1162,7 @@
     }
 
     if (hasDeviceList) {
+        applyHeld(HELD);
         recheckBtn.addEventListener("click", () => refreshReachability(true));
         refreshReachability();
     }

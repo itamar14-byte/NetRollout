@@ -6,6 +6,11 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Added
+
+- **A device takes one rollout at a time.** From launch - while queued too - until it ends, a rollout holds its devices, and a rollout or rollback that includes any of them is refused, naming the device and whose rollout holds it ("R1 (10.10.10.11:22) - pc-op's rollout, running since 16:02:11"); nothing of it is queued, not even its other platforms. A device is one box whoever's entry it is: a global device, your own and another user's entry for one `ip:port` are one device, and a name counts as the address it resolves to. Two pushes to one device at once interleaved their sessions, and each one's verification and rollback took the other's changes for its own. The standalone CLI isn't covered.
+- New Rollout says why a device can't be ticked, with a tag on its row - **NO PROFILE**, **UNREACHABLE** or **IN ROLLOUT** (whose, in its tooltip) - and **Recheck** looks again at which devices are in a rollout. Inventory marks such a device **IN ROLLOUT**, and the dashboard lists **Devices in rollouts** while there are any.
+
 ### Changed
 
 - System Settings says what each row sets and in what: every number shows its unit beside the box and in its default (days, seconds, minutes, rollouts, devices, backups), and the labels say what you set - **Keep the audit log for** 90 days, **Rollouts at the same time**, **Reuse a device's up/down status for** 60 seconds, **Scheduled backups to keep**. A list's default shows its label (Daily, Sunday), not its value.

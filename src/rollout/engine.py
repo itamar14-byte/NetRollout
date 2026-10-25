@@ -10,14 +10,14 @@ import re
 import threading
 import uuid
 from collections import Counter
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict
 
 from src import encryption
-from src.rollout.address import qualify
+from src.rollout.address import is_ip, qualify
 from src.rollout.evidence import Judgment, Outcome, Verdict
 from src.rollout.log import Tone, redact
 from src.rollout.session import NetmikoSession, Notifier, PushResult, RunReport
@@ -258,6 +258,17 @@ class Device:
 		"""ip:port - what identifies a reachable target (the IP alone doesn't:
 		NAT / port forwarding put several devices behind one address)."""
 		return endpoint(self.ip, self.port)
+
+	def target(self, addresses: Mapping[str, str] | None = None) -> str:
+		"""The box it is, as ip:port: a hostname counts as the address its
+		reachability check resolved it to, so one router saved by name and by
+		its IP is one target (the same-target check, the device locks); a name
+		without one is compared as written.
+
+		:param addresses: hostname (as saved) -> address (resolved_addresses)"""
+		host = self.host
+		address = host if is_ip(host) else (addresses or {}).get(self.ip, host)
+		return endpoint(address, self.port)
 
 	def unresolved(self, commands: list[str]) -> list[str]:
 		"""Why the commands can't be filled in for this device - checked by the

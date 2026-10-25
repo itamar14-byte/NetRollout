@@ -996,3 +996,151 @@ def test_a_job_started_at_once_logs_no_wait():
 	with open(job._logger.logfile, encoding="utf-8") as f:
 		log = f.read()
 	assert "Waited" not in log and "Starting configuration rollout" in log.splitlines()[0]
+
+
+# ── A device takes one rollout at a time ─────────────────────────────────────
+
+def _submit(orch, *devices, user=None, addresses=None):
+	"""submit() of one command to these devices; :returns: the job's id"""
+	options = RolloutOptions(verify=False, verbose=False, webapp=False)
+	return orch.submit(list(devices), ["cmd"], options, user or uuid.uuid4(),
+	                   addresses=addresses)
+
+
+def test_a_device_in_a_queued_or_running_rollout_refuses_another(make_orchestrator):
+	"""A second rollout to a device a running one holds is refused with
+	DeviceBusy naming the device and the holder's row; nothing of it is
+	queued, and the first goes on. A rollout to other devices - or to the same
+	address on another port (another box behind NAT) - is queued."""
+	orch = make_orchestrator(FakeRedis())
+	release = threading.Event()
+	with patch.object(RolloutEngine, "run", side_effect=_blocking_run(release)):
+		owner = uuid.uuid4()
+		first = _submit(orch, _device("10.0.0.1"), user=owner)
+		assert wait_for(lambda: orch.counts()["running"] == 1)
+		with pytest.raises(jobs.DeviceBusy) as refused:
+			_submit(orch, _device("10.0.0.2"), _device("10.0.0.1"))
+		assert list(refused.value.conflicts) == ["10.0.0.1:22"]
+		holder = refused.value.conflicts["10.0.0.1:22"]
+		assert (holder.job_id, holder.user_id, holder.state) == (str(first), str(owner), "running")
+		assert orch.counts() == {"running": 1, "queued": 0}
+		_submit(orch, _device("10.0.0.2"), _device("10.0.0.1", port=2222))
+		assert orch.counts()["running"] + orch.counts()["queued"] == 2
+		release.set()
+		assert wait_for(orch.idle)
+
+
+def test_a_queued_rollout_holds_its_devices_too(make_orchestrator):
+	"""A rollout waiting for a slot already holds its devices: another one to
+	them is refused before it could slip in first."""
+	orch = make_orchestrator(FakeRedis(), max_concurrent=1)
+	release = threading.Event()
+	with patch.object(RolloutEngine, "run", side_effect=_blocking_run(release)):
+		_submit(orch, _device("10.0.0.1"))
+		assert wait_for(lambda: orch.counts()["running"] == 1)
+		queued = _submit(orch, _device("10.0.0.2"))
+		with pytest.raises(jobs.DeviceBusy) as refused:
+			_submit(orch, _device("10.0.0.2"))
+		assert refused.value.conflicts["10.0.0.2:22"].job_id == str(queued)
+		assert refused.value.conflicts["10.0.0.2:22"].state == "queued"
+		release.set()
+		assert wait_for(orch.idle)
+
+
+def test_a_hostname_and_its_address_are_one_device(make_orchestrator):
+	"""A device saved by name, resolved by the launch's reachability check,
+	holds the address it resolved to: a rollout to that IP is refused, and
+	conflicts() says so before anything is queued."""
+	orch = make_orchestrator(FakeRedis())
+	release = threading.Event()
+	with patch.object(RolloutEngine, "run", side_effect=_blocking_run(release)):
+		_submit(orch, _device("r1.lab.local"), addresses={"r1.lab.local": "10.10.10.11"})
+		assert set(orch.conflicts({"10.10.10.11:22", "10.10.10.21:22"})) == {"10.10.10.11:22"}
+		with pytest.raises(jobs.DeviceBusy):
+			_submit(orch, _device("10.10.10.11"))
+		release.set()
+		assert wait_for(orch.idle)
+
+
+def test_busy_lists_every_held_device_until_its_rollout_ends(make_orchestrator):
+	"""busy(): each held device -> its job's row, while the job runs; empty
+	once it has ended - and the device takes a new rollout then."""
+	orch = make_orchestrator(FakeRedis())
+	release = threading.Event()
+	with patch.object(RolloutEngine, "run", side_effect=_blocking_run(release)):
+		job = _submit(orch, _device("10.0.0.1"), _device("10.0.0.2"))
+		assert wait_for(lambda: orch.counts()["running"] == 1)
+		assert {t: r.job_id for t, r in orch.busy().items()} == \
+		       {"10.0.0.1:22": str(job), "10.0.0.2:22": str(job)}
+		release.set()
+		assert wait_for(orch.idle)
+	assert orch.busy() == {}
+	with patch.object(RolloutEngine, "run", return_value=[]):
+		_submit(orch, _device("10.0.0.1"))
+
+
+def test_a_cancelled_queued_rollout_frees_its_devices(make_orchestrator):
+	"""A queued rollout cancelled ends at once - and its devices are free at
+	once, while the running one still holds its own."""
+	orch = make_orchestrator(FakeRedis(), max_concurrent=1)
+	release = threading.Event()
+	with patch.object(RolloutEngine, "run", side_effect=_blocking_run(release)):
+		_submit(orch, _device("10.0.0.1"))
+		assert wait_for(lambda: orch.counts()["running"] == 1)
+		queued = _submit(orch, _device("10.0.0.2"))
+		orch.cancel(queued)
+		assert set(orch.busy()) == {"10.0.0.1:22"}
+		_submit(orch, _device("10.0.0.2"))       # free again
+		release.set()
+		assert wait_for(orch.idle)
+
+
+def test_a_submit_failing_partway_holds_nothing(make_orchestrator):
+	"""A submit that fails after claiming (queuing it fails) leaves its
+	devices free: the next rollout to them is queued."""
+	fake = EnqueueFailsRedis()
+	orch = make_orchestrator(fake)
+	with pytest.raises(redis.exceptions.ConnectionError):
+		_submit(orch, _device("10.0.0.1"))
+	assert orch.busy() == {}
+	assert orch.conflicts({"10.0.0.1:22"}) == {}
+
+
+def test_a_drain_frees_the_devices_of_every_rollout_it_ends(make_orchestrator):
+	"""drain(): the queued rollout recorded as cancelled and the running one
+	ended - no device is held afterwards."""
+	orch = make_orchestrator(FakeRedis(), max_concurrent=1)
+	never = threading.Event()
+	with patch.object(RolloutEngine, "run",
+	                  side_effect=_blocking_run(never, stop_on_cancel=True)):
+		_submit(orch, _device("10.0.0.1"))
+		assert wait_for(lambda: orch.counts()["running"] == 1)
+		_submit(orch, _device("10.0.0.2"))
+		assert len(orch.busy()) == 2
+		orch.drain(0.2, report=lambda _line: None)
+	assert orch.busy() == {}
+
+
+def test_of_rollouts_launched_at_once_to_one_device_exactly_one_is_queued(make_orchestrator):
+	"""Twenty launches to the same device at the same moment, from twenty
+	threads: one is queued, nineteen are refused with DeviceBusy."""
+	orch = make_orchestrator(FakeRedis())
+	release, start = threading.Event(), threading.Barrier(20)
+	queued, refused = [], []
+
+	def launch():
+		start.wait()
+		try:
+			queued.append(_submit(orch, _device("10.0.0.1")))
+		except jobs.DeviceBusy:
+			refused.append(1)
+
+	with patch.object(RolloutEngine, "run", side_effect=_blocking_run(release)):
+		threads = [threading.Thread(target=launch) for _ in range(20)]
+		for t in threads:
+			t.start()
+		for t in threads:
+			t.join(10)
+		assert (len(queued), len(refused)) == (1, 19)
+		release.set()
+		assert wait_for(orch.idle)

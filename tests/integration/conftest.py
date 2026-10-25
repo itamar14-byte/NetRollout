@@ -333,11 +333,11 @@ def captured_submits(app, monkeypatch):
 	new job id); nothing runs."""
 	calls = []
 
-	def _capture(devices, commands, params, user_id, comment=None):
+	def _capture(devices, commands, params, user_id, comment=None, addresses=None):
 		job_id = uuid.uuid4()
 		calls.append(SimpleNamespace(devices=devices, commands=commands,
 		                             params=params, user_id=user_id,
-		                             comment=comment, job_id=job_id))
+		                             comment=comment, addresses=addresses, job_id=job_id))
 		return job_id
 
 	monkeypatch.setattr(app.orchestrator, "submit", _capture)

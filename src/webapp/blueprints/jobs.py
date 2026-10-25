@@ -22,6 +22,7 @@ from src.results import (EXPORT_COLUMNS, JOB_STATUSES, JobFilter, JobPage, JobRe
 from src.rollout.engine import DeviceStatus, ReviewOutcome, diff_tags, endpoint
 from src.webapp.app import current_app
 from src.webapp.csv_download import csv_download
+from src.webapp.device_holds import in_rollouts
 from src.webapp.http import date_arg, ok, err, picked_username, viewer, with_json
 
 
@@ -175,6 +176,11 @@ def dashboard() -> str:
 	users = data["users"]
 	selected_username = picked_username(users, selected_user)
 
+	# ── Devices in a rollout now: the ones the user sees, whoever's rollout ──
+	with current_app.backend.postgres.get_session() as db_session:
+		visible = InventoryView(db_session, viewer()).visible()
+		db_session.expunge_all()
+
 	return render_template("dashboard.html",
 	                       active_section="dashboard",
 	                       active_job=active_job_data,
@@ -188,7 +194,8 @@ def dashboard() -> str:
 	                       kpi=kpi,
 	                       users=users,
 	                       selected_user=selected_user,
-	                       selected_username=selected_username)
+	                       selected_username=selected_username,
+	                       in_rollouts=in_rollouts(visible))
 
 
 @bp.route("/active_jobs")
