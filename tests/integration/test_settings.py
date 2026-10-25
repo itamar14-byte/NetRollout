@@ -96,7 +96,7 @@ def test_invalid_values_save_nothing(store, session_scope):
 		store.update({"job_retention_days": 45, "audit_retention_days": 3,
 		              "no_such_setting": 1}, None)
 	assert set(e.value.errors) == {"audit_retention_days", "no_such_setting"}
-	assert "Audit log must be at least 7" in e.value.errors["audit_retention_days"]
+	assert "Keep the audit log for: must be at least 7" in e.value.errors["audit_retention_days"]
 	assert rows(session_scope) == before          # all-or-nothing
 
 

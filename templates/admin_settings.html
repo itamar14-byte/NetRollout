@@ -237,22 +237,22 @@
   function parseField(s, raw) {
     if (s.kind === 'int') {
       const text = String(raw).trim();
-      if (!/^-?\d+$/.test(text)) throw `${s.label} must be a whole number`;
+      if (!/^-?\d+$/.test(text)) throw `${s.label}: must be a whole number`;
       const n = parseInt(text, 10);
-      if (s.minimum !== null && n < s.minimum) throw `${s.label} must be at least ${s.minimum}`;
-      if (s.maximum !== null && n > s.maximum) throw `${s.label} must be at most ${s.maximum}`;
+      if (s.minimum !== null && n < s.minimum) throw `${s.label}: must be at least ${s.minimum}`;
+      if (s.maximum !== null && n > s.maximum) throw `${s.label}: must be at most ${s.maximum}`;
       return n;
     }
     const v = String(raw ?? '').trim();
     if (s.choices) {
       if (!s.choices.some(c => c[0] === v))
-        throw `${s.label} must be one of: ${s.choices.map(c => c[1]).join(', ')}`;
+        throw `${s.label}: must be one of: ${s.choices.map(c => c[1]).join(', ')}`;
       return v;
     }
-    if (s.required && !v) throw `${s.label} is required`;
-    if (s.max_length && v.length > s.max_length) throw `${s.label} must be at most ${s.max_length} characters`;
+    if (s.required && !v) throw `${s.label}: required`;
+    if (s.max_length && v.length > s.max_length) throw `${s.label}: must be at most ${s.max_length} characters`;
     if (v && s.pattern && !new RegExp('^(?:' + s.pattern + ')$').test(v))
-      throw `${s.label} ${s.pattern_hint || 'has an invalid format'}`;
+      throw `${s.label}: ${s.pattern_hint || 'has an invalid format'}`;
     return v;
   }
 

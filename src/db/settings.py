@@ -539,7 +539,7 @@ class SettingsStore:
 			try:
 				parsed[key] = s.parse(value)
 			except ValueError as e:
-				errors[key] = f"{s.label} {e}"
+				errors[key] = f"{s.label}: {e}"
 		if errors:
 			raise SettingsError(errors)
 		current = self.values()
