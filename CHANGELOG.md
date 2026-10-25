@@ -6,6 +6,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Fixed
+
+- Signing in after a session ended on a page left open could land on `/account/session` (a page's background session check) instead of the page you were on: once signed out, that check - and any request from a page's script - now gets a 401, never the sign-in page, so it can't replace the page to return to. The page returned to also drops an automatic reload's `?_bg=1`.
+
 ## [1.0.0] - 2026-10-25
 
 The first release. Since 1.0.0rc9, seven platforms were run through NetRollout's own engine against virtual devices in an EVE-NG lab - IOS, NX-OS, IOS-XR, Junos, PAN-OS, Check Point Gaia and FortiOS - and what that round found is fixed here. An installed release candidate upgrades from NetRollout Manager (**Upgrade**) or Linux's `netrollout.sh upgrade`, keeping everything; a before-upgrade backup is made first.

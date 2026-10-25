@@ -828,3 +828,63 @@ def test_a_directory_user_with_the_reserved_name_is_refused(client_for, ldap_ser
 	assert b"reserved" in c.get("/").data
 	with session_scope() as s:
 		assert s.query(User).filter(User.username.ilike("netrollout-grafana-admin")).count() == 0
+
+
+@pytest.mark.parametrize("value, kept", [
+	("/active_jobs?_bg=1", "/active_jobs"),
+	("/results?id=x&_bg=1", "/results?id=x"),
+	("/results?_bg=1&id=x", "/results?id=x"),
+	("/results?id=a%20b", "/results?id=a%20b"),     # no _bg: kept exactly as it was
+])
+def test_a_background_reload_is_returned_to_as_a_page(value, kept):
+	"""A page's automatic reload marks itself ?_bg=1: the page returned to after
+	signing in drops it (else that first page wouldn't count as activity); any
+	other query is kept, and a target without _bg is returned untouched."""
+	assert safe_next(value) == kept
+
+
+@pytest.mark.parametrize("headers", [{"X-NR-Background": "1"}, {}])
+def test_a_signed_out_session_check_is_401_and_stores_no_target(client_for, headers):
+	"""Signed out, the page script's session check (background, or "Stay signed
+	in") answers 401 JSON - never the sign-in page, whose ?next= would store
+	/account/session as the page to return to."""
+	client = client_for()
+	asked_for(client, "/results")
+	resp = client.get("/account/session", headers=headers)
+	assert resp.status_code == 401 and "Location" not in resp.headers
+	with client.session_transaction() as s:
+		assert s["login_next"] == "/results"
+
+
+def test_a_signed_out_script_request_is_401_and_a_page_load_the_sign_in(client_for):
+	"""Signed out, a page's script (the background header, the XHR header) gets 401
+	JSON; a page load of the same route - a link, F5, ?_bg=1's automatic reload -
+	still gets the sign-in page with ?next=."""
+	client = client_for()
+	for headers in ({"X-NR-Background": "1"}, {"X-Requested-With": "XMLHttpRequest"}):
+		resp = client.get("/active_jobs", headers=headers)
+		assert resp.status_code == 401 and "Location" not in resp.headers
+	assert client.get("/active_jobs").headers["Location"] == "/?next=%2Factive_jobs"
+	assert client.get("/active_jobs?_bg=1").headers["Location"].startswith("/?next=")
+
+
+def test_a_session_check_after_signing_out_doesnt_change_where_sign_in_lands(
+		client_for, make_user):
+	"""The page left open past its session (1.0.0): its reload stored
+	/active_jobs?_bg=1, then its session check, signed out, was redirected to the
+	sign-in page, storing /account/session - and signing in through 2FA landed
+	there. Now the check is refused and sign-in lands on Active Jobs."""
+	user = make_user()
+	client = client_for()
+	assert login(client, user.username).headers["Location"] == "/otp_enroll"
+	client.get("/otp_enroll")
+	with client.session_transaction() as s:
+		secret = s["pending_totp_secret"]
+	client.post("/otp_enroll", data={"code": pyotp.TOTP(secret).now()})
+	client.get("/logout")
+
+	asked_for(client, "/active_jobs?_bg=1")                       # the reload
+	client.get("/account/session", headers={"X-NR-Background": "1"})  # its check
+	login(client, user.username)
+	resp = client.post("/otp_verify", data={"code": pyotp.TOTP(secret).now()})
+	assert resp.headers["Location"] == "/active_jobs"

@@ -14,7 +14,7 @@ from flask import Flask, Response, flash, redirect, render_template, request, se
 from flask.typing import ResponseReturnValue
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
-from flask_login import LoginManager, current_user, logout_user
+from flask_login import LoginManager, current_user, login_url, logout_user
 from flask_wtf import CSRFProtect
 from prometheus_flask_exporter import PrometheusMetrics
 from redis.exceptions import ConnectionError as RedisConnectionError, \
@@ -62,6 +62,21 @@ def signed_in_user(db_session: Session) -> User:
 login_mng = LoginManager()
 
 login_mng.login_view = "auth.home"
+
+
+@login_mng.unauthorized_handler
+def signed_out() -> ResponseReturnValue:
+	"""A signed-out request to a page that needs a sign-in. A page's script
+	(a background poll, a fetch with a JSON body or the XHR header) gets 401
+	JSON: it can't show the sign-in page, and following a redirect there
+	would store its own path as the page to return to after signing in.
+	Anything else - a link, a reload, a form posted from a page left open,
+	Active Jobs' automatic ?_bg=1 reload - gets the sign-in page with ?next=,
+	as Flask-Login would."""
+	if Caller.SCRIPT.wants_json() or request.headers.get("X-NR-Background") == "1":
+		return err("You're signed out - sign in again", 401, redirect=url_for("auth.home"))
+	flash(login_mng.login_message, login_mng.login_message_category)
+	return redirect(login_url(login_mng.login_view, request.url))
 conn_limit = Limiter(get_remote_address, default_limits=[],
                      storage_uri="memory://")
 csrf = CSRFProtect()

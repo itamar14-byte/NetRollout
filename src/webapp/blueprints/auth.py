@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime, timezone
 from io import BytesIO
 from typing import Any, cast
-from urllib.parse import urlparse, urlsplit
+from urllib.parse import parse_qsl, urlencode, urlparse, urlsplit
 
 import pyotp
 import qrcode
@@ -33,7 +33,7 @@ from src.results import JobResults
 from src.webapp.app import current_app
 from src.webapp.hooks import (csrf, conn_limit, mark_signed_in, session_seconds_left,
                               signed_in_user)
-from src.webapp.http import is_background, ok, viewer, with_form
+from src.webapp.http import err, is_background, ok, viewer, with_form
 
 
 bp = Blueprint("auth", __name__)
@@ -94,7 +94,13 @@ def safe_next(value: str | None) -> str | None:
 	parts = urlsplit(value)
 	if parts.scheme or parts.netloc or parts.path in ("/", "/logout"):
 		return None
-	return value
+	# a page's automatic reload marks itself background (?_bg=1): the page
+	# a person returns to isn't one, or it wouldn't count as activity
+	pairs = parse_qsl(parts.query, keep_blank_values=True)
+	if not any(key == "_bg" for key, _ in pairs):
+		return value
+	query = urlencode([(key, val) for key, val in pairs if key != "_bg"])
+	return parts.path + (f"?{query}" if query else "")
 
 
 def after_login(user: User) -> ResponseReturnValue:
@@ -701,11 +707,13 @@ def account_2fa_off(data: Any) -> ResponseReturnValue:
 
 
 @bp.route("/account/session")
-@login_required
-def session_state() -> Response:
+def session_state() -> ResponseReturnValue:
 	"""How long this session has left - for the page's warning. Asked with
 	X-NR-Background it doesn't count as activity; without ("Stay signed in")
-	it does (the session gate extended it before this runs)."""
+	it does (the session gate extended it before this runs). Signed out:
+	401, never the sign-in page - only the page's script asks this."""
+	if not current_user.is_authenticated:
+		return err("You're signed out - sign in again", 401, redirect=url_for("auth.home"))
 	idle_left, absolute_left = session_seconds_left()
 	return ok(idle_seconds_left=int(idle_left),
 	          absolute_seconds_left=int(absolute_left),

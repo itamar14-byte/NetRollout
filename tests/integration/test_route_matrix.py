@@ -26,6 +26,7 @@ PUBLIC_ENDPOINTS = {
 # their caller isn't a browser
 STATUS_REFUSALS = {
 	"system.grafana_auth": 401,   # nginx's auth_request: only 2xx/401/403
+	"auth.session_state": 401,    # only a page's script asks it: never the sign-in page
 }
 SKIP_PREFIXES = ("/_test/", "/rollout/stream/_test/", "/static/")
 

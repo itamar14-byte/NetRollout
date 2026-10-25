@@ -159,8 +159,8 @@ def test_kick_refuses_the_admins_own_session(app, admin, client_for):
 def test_kick_signs_the_user_out_of_every_browser(admin, client_for, make_user):
 	"""A user signed in on two computers is signed out of both by one Kick:
 	each one's next page goes to the sign-in page, and the open page's
-	background session check is redirected there too (so it leaves within
-	30 s)."""
+	background session check gets 401 (so it leaves within 30 s) - never a
+	redirect, which would store its own path as the page to return to."""
 	target = make_user()
 	office, laptop = client_for(target), client_for(target)
 	assert office.get("/dashboard").status_code == 200
@@ -168,11 +168,10 @@ def test_kick_signs_the_user_out_of_every_browser(admin, client_for, make_user):
 	assert client_for(admin).post(f"/admin/sessions/{target.id}/kick").status_code == 200
 	for browser in (office, laptop):
 		assert browser.get("/dashboard").status_code == 302
-		# the open page's 30 s check: redirected to the sign-in page, which
-		# makes the page leave (_idle_timeout.html: r.redirected)
+		# the open page's 30 s check: 401, which makes the page leave
+		# (_idle_timeout.html: r.status === 401)
 		check = browser.get("/account/session", headers={"X-NR-Background": "1"})
-		assert (check.status_code, check.headers["Location"]) == (
-			302, "/?next=%2Faccount%2Fsession")
+		assert check.status_code == 401 and "Location" not in check.headers
 
 
 def test_live_sessions_leave_out_sessions_that_ended(admin, client_for, make_user):
@@ -212,7 +211,7 @@ def test_terminate_session_signs_the_user_out_everywhere(
 	for b in browsers:
 		assert b.get("/dashboard").headers["Location"].startswith("/?next=")
 		check = b.get("/account/session", headers={"X-NR-Background": "1"})
-		assert check.status_code == 302 and check.headers["Location"].startswith("/?next=")
+		assert check.status_code == 401 and "Location" not in check.headers
 
 
 def test_unknown_user_actions_are_404_and_not_audited(admin, client_for,
