@@ -771,6 +771,19 @@ def test_the_verification_diff_marks_lines_that_arent_configuration(operator, cl
 	assert "row.classList.add('vf-skip');" in page and "'not configuration'" in page
 
 
+def test_lines_the_device_rewrites_are_behind_one_switch(operator, client_for):
+	"""The Verification diff hides the lines a device rewrites by itself - a
+	comment (IOS' "! Last configuration change", FortiOS' #conf_file_ver) and
+	its own churn (re-encrypted passwords) - behind one switch, NetRollout's own
+	toggle; a push that changed only those says it changed no configuration
+	(IOS rewrites its comment on every push, so its diff is never empty)."""
+	page = client_for(operator.user).get("/results").get_data(as_text=True)
+	assert "Unchanged: the push changed no configuration - only lines the device rewrites by itself." in page
+	assert "Show lines the device rewrites by itself" in page
+	assert "row.classList.add('vf-noise');" in page and "_el('span', 'nr-toggle')" in page
+	assert "Show the device's own changes" not in page
+
+
 def test_results_page_shows_what_needs_a_person(operator, client_for,
                                                 session_scope):
 	"""A device needing a person shows on Results without reading the log: one

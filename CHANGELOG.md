@@ -9,6 +9,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 ### Changed
 
 - System Settings says what each row sets and in what: every number shows its unit beside the box and in its default (days, seconds, minutes, rollouts, devices, backups), and the labels say what you set - **Keep the audit log for** 90 days, **Rollouts at the same time**, **Reuse a device's up/down status for** 60 seconds, **Scheduled backups to keep**. A list's default shows its label (Daily, Sunday), not its value.
+- Verification's before → after hides the lines a device rewrites by itself - comments such as IOS's `! Last configuration change` and FortiOS's `#conf_file_ver`, and re-encrypted passwords - behind one switch (NetRollout's own toggle, no longer a browser checkbox), so the diff opens on the real changes. A push that changed only those lines says it changed no configuration (IOS rewrites its comment on every push, so "Unchanged" never showed there).
 
 ### Fixed
 

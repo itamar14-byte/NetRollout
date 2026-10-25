@@ -72,9 +72,11 @@ button.status-pill:hover { filter: brightness(1.2); }
 .vf-by { margin-left:14px; font-size:0.68rem; font-style:italic; color:var(--nr-text-muted); white-space:normal; }
 .vf-line.vf-other .vf-by { color:#ffb74d; }
 .vf-line.vf-skip .vf-by { color:var(--nr-text-muted); font-style:italic; }
-.vf-diff .vf-churn { display:none; opacity:0.55; }
-.vf-diff.show-churn .vf-churn { display:block; }
-.vf-switch { display:flex; gap:6px; align-items:center; font-size:0.74rem; color:var(--nr-text-muted); margin:6px 0; cursor:pointer; }
+.vf-diff .vf-churn { opacity:0.55; }
+/* lines the device rewrites by itself: hidden until asked for */
+.vf-diff .vf-noise { display:none; }
+.vf-diff.show-noise .vf-noise { display:block; }
+.vf-switch { display:flex; gap:8px; align-items:center; font-size:0.74rem; color:var(--nr-text-muted); margin:6px 0; cursor:pointer; }
 .vf-note { font-size:0.74rem; color:var(--nr-text-muted); font-style:italic; }
 .vf-reply { font-size:0.74rem; color:#ffcc80; }
 .vf-reply code { color:#ffe0b2; background:none; padding:0; }
@@ -1320,6 +1322,18 @@ async function _renderVerifyDiff(device, activeTab) {
         list.appendChild(_el('div', 'vf-note', 'Unchanged: the push added and removed nothing.'));
     }
     if (data.diff) {
+        // a line the device rewrites by itself on every push or read: a comment
+        // (no tag: the grammar doesn't read it) or the device's own churn
+        const tagsOf = data.diff_tags || [];
+        const changed = (line) => (line.startsWith('+') && !line.startsWith('+++'))
+                               || (line.startsWith('-') && !line.startsWith('---'));
+        const isNoise = (line, n) => !!data.diff_tags && changed(line) && (!tagsOf[n] || tagsOf[n].device);
+        const lines = data.diff.split('\n');
+        const onlyNoise = !!data.diff_tags && lines.every((line, n) => !changed(line) || isNoise(line, n));
+        if (onlyNoise) {
+            list.appendChild(_el('div', 'vf-note',
+                'Unchanged: the push changed no configuration - only lines the device rewrites by itself.'));
+        }
         const details = _el('details');
         const summary = _el('summary', 'vf-section', 'The configuration, before → after');
         summary.style.cursor = 'pointer';
@@ -1329,8 +1343,8 @@ async function _renderVerifyDiff(device, activeTab) {
         const tags = data.diff_tags || [];
         const sent = data.transcript.commands || [];
         const pre = _el('pre', 'vf-diff');
-        let churned = 0;
-        data.diff.split('\n').forEach((line, n) => {
+        let noise = 0;
+        lines.forEach((line, n) => {
             const kind = line.startsWith('+') && !line.startsWith('+++') ? 'add'
                        : line.startsWith('-') && !line.startsWith('---') ? 'del' : 'same';
             const row = _el('div', 'vf-line ' + kind);
@@ -1341,7 +1355,6 @@ async function _renderVerifyDiff(device, activeTab) {
                 if (change.device) {
                     tag = 'the device\'s own';
                     row.classList.add('vf-churn');
-                    churned++;
                 } else if (change.review && change.review.length) {
                     tag = '← ' + change.review.map(i => `'${sent[i].command.trim()}' (review)`).join(', ');
                 } else if (change.by.length) {
@@ -1357,15 +1370,22 @@ async function _renderVerifyDiff(device, activeTab) {
                 row.classList.add('vf-skip');
                 row.appendChild(_el('span', 'vf-by', 'not configuration'));
             }
+            if (isNoise(line, n)) {
+                row.classList.add('vf-noise');
+                noise++;
+            }
             pre.appendChild(row);
         });
-        if (churned) {
+        if (noise) {
+            // NetRollout's own switch (.nr-toggle), not the browser's checkbox
             const label = _el('label', 'vf-switch');
+            const toggle = _el('span', 'nr-toggle');
             const box = _el('input');
             box.type = 'checkbox';
-            box.id = 'vf-show-churn';
-            box.onchange = () => pre.classList.toggle('show-churn', box.checked);
-            label.append(box, ` Show the device's own changes (${churned}) - lines it changes by itself on every read`);
+            box.id = 'vf-show-noise';
+            box.onchange = () => pre.classList.toggle('show-noise', box.checked);
+            toggle.append(box, _el('span', 'nr-toggle-slider'));
+            label.append(toggle, `Show lines the device rewrites by itself (${noise}) - version comments and re-encrypted passwords, changed on every push or read`);
             details.appendChild(label);
         }
         details.appendChild(pre);
