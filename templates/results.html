@@ -268,18 +268,44 @@ button.status-pill:hover { filter: brightness(1.2); }
     vertical-align: middle;
 }
 
-/* ── Diff mode ── */
+/* ── Diff mode: a click on a card picks it (the box shows it), a click
+   outside the cards or Escape leaves; the box is New Rollout's ── */
 .diff-checkbox {
     display: none;
-    accent-color: #00bcd4;
-    width: 14px;
-    height: 14px;
+    appearance: none;
+    -webkit-appearance: none;
+    width: 15px;
+    height: 15px;
+    flex-shrink: 0;
+    border: 1px solid #333;
+    border-radius: 3px;
+    background: #1a1a1a;
     cursor: pointer;
+    position: relative;
     vertical-align: middle;
-    margin-right: 6px;
+    margin: 0 8px 0 0;
+    transition: border-color 0.15s, background 0.15s;
+}
+.diff-checkbox:checked { background: #00bcd4; border-color: #00bcd4; }
+.diff-checkbox:checked::after {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 1px;
+    width: 4px;
+    height: 8px;
+    border: 2px solid #000;
+    border-top: none;
+    border-left: none;
+    transform: rotate(45deg);
 }
 #job-list.diff-mode .diff-checkbox { display: inline-block; }
-#job-list.diff-mode .job-row.dimmed { opacity: 0.2; pointer-events: none; }
+#job-list.diff-mode .job-row { cursor: pointer; }
+#job-list.diff-mode .job-row:hover .diff-checkbox:not(:checked) { border-color: #00bcd4; }
+/* two picked: the rest are out of reach, but still cards (a click on one
+   is no click outside) */
+#job-list.diff-mode .job-row.dimmed { opacity: 0.2; cursor: not-allowed; }
+#job-list.diff-mode .job-row.dimmed:hover .diff-checkbox { border-color: #333; }
 #job-list.diff-mode .job-row.diff-selected { border-color: #00bcd4; }
 #job-list.diff-mode .chevron { display: none; }
 
@@ -1494,7 +1520,13 @@ function toggleSection(header, bodyId) {
 
 // ── Expand/collapse ──────────────────────────────────────────────────────────
 function toggleJob(row) {
-    if (diffMode) return;
+    if (diffMode) {               // a click on a card picks it for the diff
+        const box = row.querySelector('.diff-checkbox');
+        if (row.classList.contains('dimmed') || box.disabled) return;
+        box.checked = !box.checked;
+        handleDiffSelect(box);
+        return;
+    }
     row.classList.toggle('expanded');
 }
 
@@ -1529,6 +1561,19 @@ function toggleDiffMode() {
     document.getElementById('diffModeBtn').classList.toggle('active', diffMode);
     if (!diffMode) resetDiffSelection();
 }
+
+// A click outside the cards (not on Compare / Diff, not in a dialog), or
+// Escape, leaves compare mode
+document.addEventListener('click', e => {
+    if (!diffMode) return;
+    if (e.target.closest('.job-row, #diffModeBtn, #compareBtn, .modal')) return;
+    toggleDiffMode();
+});
+document.addEventListener('keydown', e => {
+    // not the Escape that closes a dialog (Bootstrap hides it before this runs)
+    if (diffMode && e.key === 'Escape' && !e.target.closest('.modal')
+            && !document.body.classList.contains('modal-open')) toggleDiffMode();
+});
 
 function resetDiffSelection() {
     selectedJobs = [];

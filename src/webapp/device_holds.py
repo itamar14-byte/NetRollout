@@ -39,7 +39,7 @@ def _named(rows: Iterable[RolloutRow]) -> dict[str, str]:
 
 
 def _since(row: RolloutRow) -> str:
-	""":returns: "queued", "running since 16:02:11" or "cancelling" """
+	""":returns: "running since 16:02:11", "queued" or "cancelling" """
 	return f"running since {row.clock}" if row.state == "running" else row.state
 
 
@@ -62,7 +62,7 @@ def holds(rows: Sequence[Inventory]) -> dict[str, dict[str, Any]]:
 		out[str(device_id)] = {
 			"user": names.get(job.job_id, "?"), "mine": mine, "state": job.state,
 			"since": job.clock if job.started else "",
-			"text": f"In {_owner(job, names)} rollout - {_since(job)}. Free when it ends.",
+			"text": f"In {_owner(job, names)} rollout, {_since(job)} - free when it ends.",
 			"job_id": job.job_id if mine or is_admin else None}
 	return out
 
@@ -79,10 +79,12 @@ def busy_message(conflicts: dict[str, RolloutRow], devices: Sequence[Device],
 	for d in devices:
 		labels.setdefault(d.target(addresses), []).append(d.label or d.ip)
 	names = _named(conflicts.values())
-	parts = [f"{' / '.join(labels.get(t, [t]))} ({t}) - {_owner(job, names)} rollout, {_since(job)}"
+	parts = [f"{' / '.join(labels.get(t, [t]))} ({t}) is in {_owner(job, names)} rollout, {_since(job)}"
 	         for t, job in conflicts.items()]
-	return (f"In another rollout - rollout blocked: {'; '.join(parts)}. A device takes one "
-	        f"rollout at a time: try again when it ends, or leave it out.")
+	one = len(parts) == 1
+	leave = " / ".join(labels.get(next(iter(conflicts)), ["it"])) if one else "those devices"
+	return (f"Rollout blocked: {'; '.join(parts)}. A device takes one rollout at a time - try "
+	        f"again when {'that rollout ends' if one else 'those rollouts end'}, or leave {leave} out.")
 
 
 

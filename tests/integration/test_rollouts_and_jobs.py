@@ -524,8 +524,9 @@ def test_a_launch_to_a_device_in_another_users_rollout_is_refused(
 	assert resp.headers["Location"] == "/rollout/new"
 	assert captured_submits == []
 	message = flashed(client)
-	assert message.startswith("In another rollout - rollout blocked: dev-10.0.0.1 (10.0.0.1:22)")
-	assert "pc-op's rollout, running since" in message
+	assert re.fullmatch(r"Rollout blocked: dev-10\.0\.0\.1 \(10\.0\.0\.1:22\) is in pc-op's rollout, "
+	                    r"running since \d\d:\d\d:\d\d\. A device takes one rollout at a time - try again "
+	                    r"when that rollout ends, or leave dev-10\.0\.0\.1 out\.", message), message
 
 
 def test_a_launch_to_a_device_in_your_own_rollout_says_yours(
@@ -536,7 +537,7 @@ def test_a_launch_to_a_device_in_your_own_rollout_says_yours(
 	client.post("/rollout/start", data={
 		"device_ids": [str(operator.ios)], "manual_commands": "hostname x"})
 	assert captured_submits == []
-	assert "your rollout, running since" in flashed(client)
+	assert "is in your rollout, running since" in flashed(client)
 
 
 def test_a_device_saved_by_name_is_held_through_its_address(
@@ -581,7 +582,7 @@ def test_a_device_claimed_between_the_check_and_the_submit_is_refused_in_words(
 	resp = client.post("/rollout/start", data={
 		"device_ids": [str(operator.ios)], "manual_commands": "hostname x"})
 	assert resp.headers["Location"] == "/rollout/new"
-	assert "racer's rollout" in flashed(client)
+	assert "is in racer's rollout" in flashed(client)
 	with session_scope() as s:
 		assert not s.query(AuditLog).filter_by(action="rollout.start").count()
 
@@ -596,7 +597,7 @@ def test_a_rollback_to_a_held_device_is_refused(
 	resp = client_for(operator.user).post(f"/rollout/rollback/{job}",
 	                                      json={"commands": "no hostname"})
 	assert resp.status_code == 409
-	assert "holder's rollout" in resp.json["message"]
+	assert "is in holder's rollout" in resp.json["message"]
 	assert captured_submits == []
 
 
@@ -621,7 +622,7 @@ def test_new_rollout_shows_whose_rollout_holds_a_device(
 	hold(app, monkeypatch, make_user(username="pc-op"), "10.0.0.1:22", "10.77.0.1:22")
 	client = client_for(operator.user)
 	html = client.get("/rollout/new").get_data(as_text=True)
-	assert "In pc-op&#39;s rollout - running since" in html
+	assert "In pc-op&#39;s rollout, running since" in html
 	held = client.get("/rollout/held").json["held"]
 	assert set(held) == {str(operator.ios)}
 	assert held[str(operator.ios)]["user"] == "pc-op" and held[str(operator.ios)]["state"] == "running"
@@ -638,7 +639,7 @@ def test_inventory_and_the_dashboard_show_devices_in_a_rollout(
 	assert card not in client.get("/dashboard").get_data(as_text=True)
 	hold(app, monkeypatch, make_user(username="pc-op"), "10.0.0.1:22")
 	inventory = client.get("/inventory").get_data(as_text=True)
-	assert re.search(r'class="in-rollout-badge" title="In pc-op&#39;s rollout - running since [^"]+">IN ROLLOUT', inventory)
+	assert re.search(r'class="in-rollout-badge" title="In pc-op&#39;s rollout, running since [^"]+ - free when it ends\.">IN ROLLOUT', inventory)
 	assert inventory.count("in-rollout-badge\" title") == 1     # the held device only
 	dashboard = client.get("/dashboard").get_data(as_text=True)
 	assert card in dashboard

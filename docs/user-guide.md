@@ -343,7 +343,7 @@ NetRollout runs a limited number of rollouts at once: 4 unless your administrato
 
 ### One rollout per device
 
-A device takes one rollout at a time. From the moment a rollout is launched - while it waits in the queue too - until it ends, its devices are held, and a rollout that includes any of them is refused: "In another rollout - rollout blocked: R1 (10.10.10.11:22) - pc-op's rollout, running since 16:02:11. A device takes one rollout at a time: try again when it ends, or leave it out." Nothing of the refused rollout is queued, not even its other devices or platforms. Two pushes to one device at once would interleave their configuration sessions, and each rollout's verification and rollback would take the other's changes for its own.
+A device takes one rollout at a time. From the moment a rollout is launched - while it waits in the queue too - until it ends, its devices are held, and a rollout that includes any of them is refused: "Rollout blocked: R1 (10.10.10.11:22) is in pc-op's rollout, running since 16:02:11. A device takes one rollout at a time - try again when that rollout ends, or leave R1 out." Nothing of the refused rollout is queued, not even its other devices or platforms. Two pushes to one device at once would interleave their configuration sessions, and each rollout's verification and rollback would take the other's changes for its own.
 
 A device is one box whoever's entry it is: your own device, a global one and another user's entry for the same `ip:port` are the same device, and a device saved by name counts as the address it resolves to. That's why the message names the other rollout's owner. A rollback is a rollout too, and is refused the same way. Rollouts run by the [CLI](cli.md) aren't counted: it works on its own, without NetRollout's server. Nor can NetRollout know that two different addresses reach the same device.
 
@@ -476,7 +476,7 @@ Some problems can only be fixed by a person on the device. NetRollout marks thes
 - **View Log**: the job's log in a window on the page, filterable. **Download Log**: the job's full log as a file. Secrets are redacted: the value after words such as `password`, `secret`, `community` or `psksecret` is written as `<redacted>`, so the log is safe to share. The commands you typed and configuration snapshots are not redacted.
 - **Verification**: per verified device, each command as sent (tokens filled in) with its verdict, the line it rests on and the device's reply; the changes no command explains; and the configuration before and after, each changed line tagged with the command it rests on (or "not by these commands"). Lines the device changes by itself on every read, such as FortiOS's re-encrypted passwords, are hidden behind **Show the device's own changes**. Devices in review are decided here (see [Reviewing a device](#reviewing-a-device)). The configuration snapshots are kept for 7 days unless your administrator changed it; after that the button shows **Verification expired**.
 - **Rollback**: see [Rolling back](#rolling-back).
-- **Compare**: tick two jobs, then select **Diff** to see their commands side by side.
+- **Compare**: select **Compare**, click two jobs (anywhere on their cards), then **Diff** to see their commands side by side. A click outside the jobs, or Escape, leaves Compare.
 
 Job records are kept for 30 days unless your administrator changed it.
 
