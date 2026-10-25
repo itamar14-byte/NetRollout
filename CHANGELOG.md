@@ -6,6 +6,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-25
+
+A device now takes one rollout at a time, and New Rollout, Inventory and the dashboard show which devices are in a rollout. Plus what the first day of 1.0.0 in the lab turned up. An installed 1.0.0 updates from NetRollout Manager (**Upgrade**) or Linux's `netrollout.sh upgrade`, keeping everything; a before-upgrade backup is made first. No database change.
+
 ### Added
 
 - **A device takes one rollout at a time.** From launch - while queued too - until it ends, a rollout holds its devices, and a rollout or rollback that includes any of them is refused, naming the device and whose rollout holds it ("Rollout blocked: R1 (10.10.10.11:22) is in pc-op's rollout, running since 16:02:11"); nothing of it is queued, not even its other platforms. A device is one box whoever's entry it is: a global device, your own and another user's entry for one `ip:port` are one device, and a name counts as the address it resolves to. Two pushes to one device at once interleaved their sessions, and each one's verification and rollback took the other's changes for its own. The standalone CLI isn't covered.
@@ -17,6 +21,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 - System Settings says what each row sets and in what: every number shows its unit beside the box and in its default (days, seconds, minutes, rollouts, devices, backups), and the labels say what you set - **Keep the audit log for** 90 days, **Rollouts at the same time**, **Reuse a device's up/down status for** 60 seconds, **Scheduled backups to keep**. A list's default shows its label (Daily, Sunday), not its value.
 - Verification's before → after hides the lines a device rewrites by itself - comments such as IOS's `! Last configuration change` and FortiOS's `#conf_file_ver`, and re-encrypted passwords - behind one switch (NetRollout's own toggle, no longer a browser checkbox), so the diff opens on the real changes. A push that changed only those lines says it changed no configuration (IOS rewrites its comment on every push, so "Unchanged" never showed there).
 - Active Jobs opens on **All Users** for an admin whose rollout is queued while other users' rollouts are running: what it waits for is shown (not when theirs are only queued too).
+- SQLAlchemy 2.1.6. The docs site is built with certifi 2026.10.19, which drops the compromised emSign root certificates (GHSA-6q48-6c7w-9gw2); NetRollout itself never shipped certifi.
 
 ### Fixed
 
@@ -330,7 +335,8 @@ Anycast. The first public release.
 
 - `netrollout-cli` for one-off rollouts from a devices CSV and a commands file, with optional Verify. A standalone Windows `.exe`; no database or Docker needed.
 
-[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc9...v1.0.0
 [1.0.0rc9]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc8...v1.0.0rc9
 [1.0.0rc8]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc7...v1.0.0rc8

@@ -8,7 +8,7 @@ Security fixes go into the latest release only. Upgrade to it to receive them.
 
 | Version | Supported |
 |---|---|
-| The latest release (1.0.x) | Yes |
+| The latest release (1.1.x) | Yes |
 | Anything older | No |
 
 ## Reporting a vulnerability
