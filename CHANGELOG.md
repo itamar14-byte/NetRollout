@@ -6,6 +6,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+## [1.1.2] - 2026-10-26
+
+Security hardening from GitHub's code scanning. An installed 1.1.x updates from NetRollout Manager (**Upgrade**) or Linux's `netrollout.sh upgrade`, keeping everything; a before-upgrade backup is made first. No database change.
+
 ### Security
 
 What GitHub's code scanning (CodeQL) found that was worth changing; its other findings were reviewed and dismissed with their reasons (test code, deliberate, or already checked in a way it doesn't recognise).
@@ -352,7 +356,8 @@ Anycast. The first public release.
 
 - `netrollout-cli` for one-off rollouts from a devices CSV and a commands file, with optional Verify. A standalone Windows `.exe`; no database or Docker needed.
 
-[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.1.1...HEAD
+[Unreleased]: https://github.com/itamar14-byte/NetRollout/compare/v1.1.2...HEAD
+[1.1.2]: https://github.com/itamar14-byte/NetRollout/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/itamar14-byte/NetRollout/compare/v1.1.0...v1.1.1
 [1.1.0]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/itamar14-byte/NetRollout/compare/v1.0.0rc9...v1.0.0
