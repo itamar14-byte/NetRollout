@@ -650,6 +650,8 @@ Monitoring is optional; you choose it at install. It adds:
 - **Loki** and **Alloy**: Alloy ships the files in `logs/` to Loki (kept 60 days).
 - **Grafana**, with dashboards over the metrics, the logs and NetRollout's database.
 
+![Grafana's Operations Overview dashboard](images/grafana.png)
+
 Open Grafana from **Administration → Monitoring**, or at `https://<your address>/grafana/`. Only signed-in NetRollout admins can open it: Grafana trusts NetRollout's sign-in and has no login form of its own. Every admin is a Grafana Editor.
 
 Grafana's dashboards are in the **NetRollout** folder:
@@ -765,6 +767,8 @@ With monitoring on, the rollout logs are also searchable in Grafana (Loki).
 ## The audit log
 
 **Administration → Audit Logs** lists who did what and when, with the outcome and the IP address. Filter by actor, action, outcome and day (**From** / **To**, both included). The page shows the newest 500; **Export CSV** downloads every entry the filters let through, the detail as JSON in one column. Under each action, the entry's detail reads in one line: a failed sign-in's reason, a change's from → to, a lock. Click an entry (or press Enter on it) to see its full detail as JSON; the ⚙ menu also has **Copy Row**. **Administration → Analytics** has an **Audit Log Query** builder with CSV export.
+
+![Administration → Analytics: the organisation's last 30 days](images/analytics.png)
 
 Recorded actions include:
 

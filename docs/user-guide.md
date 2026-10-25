@@ -287,6 +287,8 @@ You set a device's values in its **Edit Device** window, under **VARIABLE ATTRIB
 
 ### Variable mappings
 
+![Variable Mappings: two tokens and the properties they read](images/mappings.png)
+
 On **Variable Mappings**, select **Add Mapping**:
 
 - **TOKEN**: letters, digits and underscores, up to 64 characters, without the `$$`. For example `LOOPBACK`, used in commands as `$$LOOPBACK$$`.
@@ -388,6 +390,8 @@ Select **Cancel** on the dashboard or on Active Jobs:
 
 When you select **Launch Rollout**, NetRollout takes you to **Active Jobs**, with your new job highlighted.
 
+![Active Jobs with a rollout's live log open and its completion card](images/live-log.png)
+
 **Active Jobs** lists the rollouts running or queued, with **Running**, **Queued** and **Devices in flight** counts. The page refreshes itself every 15 seconds while jobs are active (not while a log is open). Administrators also see other users' jobs, under **Other Users**.
 
 For each job:
@@ -450,6 +454,8 @@ A job's status comes from its devices:
 ### Reviewing a device
 
 A device with a command in review waits for a person: NetRollout couldn't prove it, and won't guess. A device with a rejected command (`partial` or `failed`) can be decided the same way, so a false rejection has a way back. Results counts both as **to decide**, and so does the dashboard. The job's owner or any administrator decides:
+
+![The Verification window: a rejected command with the device's reply, one in review, two that took effect, and Confirm / Reject](images/verification.png)
 
 1. Open the job in Results and select the device's status, or **Verification**.
 2. The **Verification** window shows each command with its verdict, the line it rests on (or "no change in its section"), and what the device replied. For example: `ip address 10.0.0.1 255.255.255.255` in review, with `+ ip address 10.0.0.1/32` - the device wrote your mask as a prefix. Or `ntp server 192.0.2.123` in review, no change, the device replied `% Initialization of NTP failed`.

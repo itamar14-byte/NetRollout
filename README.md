@@ -47,6 +47,8 @@ It is for network engineers who want a bulk change done and checked without writ
 - **Upgrades.** NetRollout Manager (Windows) and `netrollout.sh upgrade` (Linux) download, check and apply a new release, with a backup first.
 - **CLI.** `netrollout-cli` runs a one-off rollout from a devices CSV and a commands file. It needs no database and no Docker.
 
+![Verification of one device: a rejected command with the device's reply, one in review with the line it found, two that took effect](docs/images/verification.png)
+
 ## Supported platforms
 
 NetRollout uses Netmiko's `device_type` names. The finish column says how a pushed change is made permanent.
