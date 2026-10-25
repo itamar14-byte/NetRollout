@@ -10,10 +10,12 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 - System Settings says what each row sets and in what: every number shows its unit beside the box and in its default (days, seconds, minutes, rollouts, devices, backups), and the labels say what you set - **Keep the audit log for** 90 days, **Rollouts at the same time**, **Reuse a device's up/down status for** 60 seconds, **Scheduled backups to keep**. A list's default shows its label (Daily, Sunday), not its value.
 - Verification's before → after hides the lines a device rewrites by itself - comments such as IOS's `! Last configuration change` and FortiOS's `#conf_file_ver`, and re-encrypted passwords - behind one switch (NetRollout's own toggle, no longer a browser checkbox), so the diff opens on the real changes. A push that changed only those lines says it changed no configuration (IOS rewrites its comment on every push, so "Unchanged" never showed there).
+- Active Jobs opens on **All Users** for an admin whose rollout is queued while other users' rollouts are running: what it waits for is shown (not when theirs are only queued too).
 
 ### Fixed
 
 - Signing in after a session ended on a page left open could land on `/account/session` (a page's background session check) instead of the page you were on: once signed out, that check - and any request from a page's script - now gets a 401, never the sign-in page, so it can't replace the page to return to. The page returned to also drops an automatic reload's `?_bg=1`.
+- Active Jobs, an admin's All Users view: **Log** on one of your own rollouts opened its log in the hidden default view, so nothing appeared.
 
 ## [1.0.0] - 2026-10-25
 

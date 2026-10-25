@@ -574,8 +574,10 @@
 
     window.toggleLog = function(btn) {
         const jobId  = btn.dataset.jobId;
-        const panel  = document.getElementById(`log-${jobId}`);
-        const logOut = document.getElementById(`log-out-${jobId}`);
+        // the panel under this button's row: an admin's own jobs are in both
+        // views, so their ids are not unique
+        const panel  = btn.closest("tr").nextElementSibling;
+        const logOut = panel.querySelector(".log-terminal");
         const isOpen = panel.classList.contains("open");
 
         if (isOpen) {
@@ -735,12 +737,21 @@
         body.style.display = open ? "" : "none";
     };
 
+    /* ── Admin: a job of yours queued while other users' run (or finish a
+          cancel - still in their slot) - what it waits for is theirs, so they
+          are shown; their queued ones alone don't ── */
+    {% if is_admin and jobs | selectattr('status', 'equalto', 'pending') | list
+          and other_jobs | selectattr('status', 'in', ['active', 'cancelling']) | list %}
+    toggleAllUsers();
+    {% endif %}
+
     /* ── Arrived to watch one rollout - the dashboard's Watch live, or just
-          launched (New Rollout lands here): its log open ── */
+          launched (New Rollout lands here): its log open, in the view shown ── */
     const watchId = new URLSearchParams(window.location.search).get("watch")
                  || new URLSearchParams(window.location.search).get("new");
     if (watchId) {
-        const watchBtn = document.querySelector(`.btn-log[data-job-id="${CSS.escape(watchId)}"]`);
+        const watchBtn = [...document.querySelectorAll(`.btn-log[data-job-id="${CSS.escape(watchId)}"]`)]
+            .find(b => b.offsetParent !== null);
         if (watchBtn && !watchBtn.classList.contains("active")) {
             toggleLog(watchBtn);
             watchBtn.closest("tr").scrollIntoView({block: "center"});
