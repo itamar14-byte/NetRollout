@@ -323,10 +323,12 @@ namespace NetRollout
 		ToolStripMenuItem dailyItem;
 		// Start, or Finish upgrade while an upgrade is unfinished (ShowState)
 		Button startButton, stopButton;
+		// greyed while NetRollout is stopped (UpdateOpen)
+		Button openButton;
 		// only while the HTTPS port is taken (normal times: System Settings)
 		Button changePortButton;
 		readonly ToolTip hint = new ToolTip();
-		ToolStripItem startItem, stopItem;
+		ToolStripItem startItem, stopItem, openItem;
 		readonly bool startInTray;
 
 		public ManagerForm(bool tray)
@@ -372,7 +374,7 @@ namespace NetRollout
 			buttons.AutoSize = true;           // a narrow window: the buttons wrap, all visible
 			buttons.AutoSizeMode = AutoSizeMode.GrowAndShrink;
 			buttons.Padding = new Padding(14, 6, 14, 6);
-			AddButton("Open NetRollout", delegate { OpenNetRollout(); }, true);
+			openButton = AddButton("Open NetRollout", delegate { OpenNetRollout(); }, true);
 			startButton = AddButton("Start", delegate { StartOrFinish(); }, false);
 			stopButton = AddButton("Stop", delegate { StopNetRollout(); }, false);
 			changePortButton = AddButton("Change port...", delegate { ChangePort(); }, false);
@@ -434,8 +436,8 @@ namespace NetRollout
 
 			// the tray
 			var menu = new ContextMenuStrip();
-			var open = menu.Items.Add("Open NetRollout", null, delegate { OpenNetRollout(); });
-			open.Font = new Font(menu.Font, FontStyle.Bold);
+			openItem = menu.Items.Add("Open NetRollout", null, delegate { OpenNetRollout(); });
+			openItem.Font = new Font(menu.Font, FontStyle.Bold);
 			menu.Items.Add("Show NetRollout Manager", null, delegate { ShowWindow(); });
 			menu.Items.Add(new ToolStripSeparator());
 			startItem = menu.Items.Add("Start", null, delegate { ShowWindow(); StartOrFinish(); });
@@ -770,7 +772,7 @@ namespace NetRollout
 		void SetBusy(bool busy)
 		{
 			foreach (Control c in buttons.Controls)
-				if (c.Text != "Open NetRollout") c.Enabled = !busy;
+				if (c != openButton) c.Enabled = !busy;
 			UpdateStartStop();
 			UpdateChangePort();
 			UseWaitCursor = busy;
@@ -794,10 +796,21 @@ namespace NetRollout
 		string GreyedHint(Control c)
 		{
 			if (c == changePortButton) return PortCheck.Hint;
+			if (c == openButton) return "NetRollout isn't running - click Start first.";
 			if (running != null) return null;
 			if (c == startButton) return "NetRollout is already running.";
 			if (c == stopButton) return "NetRollout isn't running.";
 			return null;
+		}
+
+		// Open greyed only while NetRollout is stopped: while it needs attention
+		// it often still answers, and its page may say what's wrong
+		void UpdateOpen()
+		{
+			bool open = state != State.Stopped;
+			openButton.Enabled = open;
+			openItem.Enabled = open;
+			addressLink.Enabled = open;
 		}
 
 		void UpdateChangePort()
@@ -907,6 +920,7 @@ namespace NetRollout
 			startItem.Text = start;
 			UpdateStartStop();
 			UpdateChangePort();
+			UpdateOpen();
 			light.Invalidate();
 			trayIcon.Text = "NetRollout - " + stateLabel.Text;
 			trayIcon.Icon = TrayIcon(LightColor(s));

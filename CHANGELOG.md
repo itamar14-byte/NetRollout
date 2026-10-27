@@ -6,6 +6,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Changed
+
+- **NetRollout Manager greys Open NetRollout while NetRollout is stopped**: the button, the tray menu's item and the address link, with a hint to start it first. They opened a browser that couldn't connect.
+
 ## [1.1.2] - 2026-10-26
 
 Security hardening from GitHub's code scanning. An installed 1.1.x updates from NetRollout Manager (**Upgrade**) or Linux's `netrollout.sh upgrade`, keeping everything; a before-upgrade backup is made first. No database change.

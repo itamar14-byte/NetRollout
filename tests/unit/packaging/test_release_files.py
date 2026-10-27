@@ -907,6 +907,22 @@ def test_the_manager_forgets_the_ports_owner_when_docker_does_not_answer():
 	assert 'if (blocker.Length == 0) { portAnnounced = ""; return; }' in form
 
 
+def test_the_managers_open_is_greyed_while_netrollout_is_stopped():
+	"""Open NetRollout (the button, the tray's item and the address link) opened a browser
+	that couldn't connect while NetRollout was stopped. Now all three grey while it's
+	Stopped and follow every status change; while it needs attention they stay on (it
+	often still answers), and an action running doesn't grey them."""
+	form = (ROOT / "packaging" / "windows" / "manager" / "NetRolloutManager.cs").read_text(encoding="utf-8")
+	update = form[form.index("void UpdateOpen()"):form.index("void UpdateChangePort()")]
+	assert "bool open = state != State.Stopped;" in update
+	for control in ("openButton", "openItem", "addressLink"):
+		assert f"{control}.Enabled = open;" in update
+	show = form[form.index("void ShowState(State s, string detail)"):form.index("static Color LightColor(")]
+	assert "UpdateOpen();" in show
+	assert "if (c != openButton) c.Enabled = !busy;" in form
+	assert """if (c == openButton) return "NetRollout isn't running - click Start first.";""" in form
+
+
 def test_a_failed_port_change_says_truthfully_where_it_left_netrollout():
 	"""After netrollout port N failed and the previous port P was put back, both scripts
 	said "back on port P" even when P was still taken. Now: back on P only when nginx
