@@ -4,7 +4,7 @@
 #
 #    pip-compile --no-emit-index-url --output-file=requirements.txt --strip-extras requirements.in
 #
-alembic==1.20.0
+alembic==1.20.1
     # via -r requirements.in
 bcrypt==5.0.0
     # via paramiko
@@ -143,9 +143,9 @@ typing-extensions==4.16.0
     #   flask-limiter
     #   limits
     #   sqlalchemy
-tzdata==2026.5
+tzdata==2026.6
     # via -r requirements.in
-tzlocal==5.4.4
+tzlocal==5.4.5
     # via -r requirements.in
 waitress==3.0.2
     # via -r requirements.in

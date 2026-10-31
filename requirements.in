@@ -3,7 +3,7 @@
 #   pip-compile requirements.in      (CONTRIBUTING.md: Dependencies)
 # Dependabot updates both. Edit this file, never requirements.txt.
 SQLAlchemy~=2.1.6
-alembic~=1.20.0
+alembic~=1.20.1
 Flask-Login~=0.6.3
 flask-session~=0.8.0
 Werkzeug~=3.1.8
@@ -34,8 +34,8 @@ redis~=8.1.0
 # the stored sessions' encoding (flask-session's): netrollout reset-admin reads them
 msgspec~=0.22.0
 ldap3~=2.9.1
-tzlocal~=5.4.4
+tzlocal~=5.4.5
 # the timezone database where the OS has none (Windows); always, for the same answers everywhere
-tzdata>=2026.5
+tzdata>=2026.6
 # version comparisons (the update's and the backup's: 1.0.0rc1 < 1.0.0)
 packaging~=26.3
