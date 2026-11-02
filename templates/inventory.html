@@ -349,7 +349,7 @@
                                     <input type="text" class="nr-select-search" placeholder="Search profiles…">
                                 </div>
                                 <div class="nr-select-create-new"
-                                     onclick="event.stopPropagation(); openQuickCreateProfile('add')">
+                                     data-nr-click="openQuickCreateProfile" data-which="add">
                                     <i class="bi bi-plus-circle"></i>Create New Profile
                                 </div>
                                 <div class="nr-select-list">
@@ -373,7 +373,7 @@
                         </div>
                         <div class="signin-test" id="addSigninTest" hidden>
                             <button type="button" class="btn btn-secondary btn-sm" id="addSigninBtn"
-                                    onclick="testSignIn('add')">
+                                    data-nr-click="testSignIn" data-which="add">
                                 <i class="bi bi-key me-1"></i>Test sign-in
                             </button>
                             <div id="addSigninStatus" class="conn-status" style="display:none;"></div>
@@ -397,8 +397,7 @@
                     <div id="addTestStatus" class="conn-status" style="display:none;"></div>
                     <div class="d-flex gap-2 ms-auto">
                         <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                        <button type="button" id="addTestBtn" class="btn btn-secondary btn-sm" data-nr-enter
-                                onclick="testAddConnection()">
+                        <button type="button" id="addTestBtn" class="btn btn-secondary btn-sm" data-nr-enter>
                             <i class="bi bi-plug me-1"></i>Test Connection
                         </button>
                     </div>
@@ -500,7 +499,7 @@
                                     <input type="text" class="nr-select-search" placeholder="Search profiles…">
                                 </div>
                                 <div class="nr-select-create-new"
-                                     onclick="event.stopPropagation(); openQuickCreateProfile('edit')">
+                                     data-nr-click="openQuickCreateProfile" data-which="edit">
                                     <i class="bi bi-plus-circle"></i>Create New Profile
                                 </div>
                                 <div class="nr-select-list">
@@ -524,7 +523,7 @@
                         </div>
                         <div class="signin-test" id="editSigninTest" hidden>
                             <button type="button" class="btn btn-secondary btn-sm" id="editSigninBtn"
-                                    onclick="testSignIn('edit')">
+                                    data-nr-click="testSignIn" data-which="edit">
                                 <i class="bi bi-key me-1"></i>Test sign-in
                             </button>
                             <div id="editSigninStatus" class="conn-status" style="display:none;"></div>
@@ -582,7 +581,7 @@
                                 {% endif %}
                             </div>
                             <button type="button" class="mapping-create-btn"
-                                    onclick="openQuickCreateMapping()">
+                                    data-nr-click="openQuickCreateMapping">
                                 <i class="bi bi-plus-circle"></i>Create New Mapping
                             </button>
                         </div>
@@ -639,7 +638,7 @@
                                            transition:color 0.15s, border-color 0.15s;"
                                     data-nr-mouseenter="nrHover" data-nr-hover-style="color:#00bcd4; border-color:#00bcd4"
                                     data-nr-mouseleave="nrRest" data-nr-rest-style="color:var(--nr-text-muted); border-color:#2a2a2a"
-                                    onclick="openQuickCreateProperty()">
+                                    data-nr-click="openQuickCreateProperty">
                                 <i class="bi bi-plus me-1"></i>New Property
                             </button>
                         </div>
@@ -654,7 +653,7 @@
                         {# both modes: whether NetRollout reaches the device is worth knowing
                            before linking a profile to a global one, too #}
                         <button type="button" id="editTestBtn" class="btn btn-secondary btn-sm"
-                                onclick="testEditConnection()">
+                                data-nr-click="testEditConnection">
                             <i class="bi bi-plug me-1"></i>Test Connection
                         </button>
                     </div>
@@ -831,7 +830,7 @@
                     <button type="button" class="btn btn-secondary btn-sm"
                             data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-primary btn-sm"
-                            onclick="submitQuickCreateProfile()">
+                            data-nr-click="submitQuickCreateProfile">
                         <i class="bi bi-plus me-1"></i>Create & Assign
                     </button>
                 </div>
@@ -870,7 +869,7 @@
                 <div class="mb-3">
                     <label class="nr-label">PROPERTY</label>
                     <select class="form-select form-select-sm" id="qcmProperty"
-                            onchange="document.getElementById('qcmIndexRow').style.display = QCM_LIST_PROPS.has(this.value) ? '' : 'none'">
+                            data-nr-change="qcmPropertyPicked">
                         {% for p in sys_props %}
                         <option value="{{ p.name }}">{{ p.name }}</option>
                         {% endfor %}
@@ -895,7 +894,7 @@
                     <button type="button" class="btn btn-secondary btn-sm"
                             data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-primary btn-sm"
-                            onclick="submitQuickCreateMapping()">
+                            data-nr-click="submitQuickCreateMapping">
                         <i class="bi bi-plus me-1"></i>Create & Assign
                     </button>
                 </div>
@@ -918,7 +917,7 @@
                     <button type="button" class="btn btn-secondary btn-sm"
                             data-bs-dismiss="modal">Cancel</button>
                     <button type="button" class="btn btn-primary btn-sm"
-                            onclick="submitQuickCreateProperty()">
+                            data-nr-click="submitQuickCreateProperty">
                         <i class="bi bi-plus me-1"></i>Create
                     </button>
                 </div>

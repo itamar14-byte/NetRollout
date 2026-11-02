@@ -271,6 +271,10 @@ function resetAddTestBtn() {
     status.textContent   = '';
 }
 
+// Add's Test Connection: an onclick property, which the test's outcome
+// takes away (the button turns into the form's submit) and gives back
+document.getElementById('addTestBtn').onclick = testAddConnection;
+
 async function testAddConnection() {
     const ipEl   = document.getElementById('addDevIp');
     const portEl = document.getElementById('addDevPort');
@@ -939,3 +943,18 @@ async function submitQuickCreateProperty() {
 
     bootstrap.Modal.getOrCreateInstance(document.getElementById('quickCreatePropertyModal')).hide();
 }
+
+// What this page's elements name in data-nr-<event> (js/events.js)
+nrHandlers({
+    openQuickCreateProfile: (el, e) => { e.stopPropagation(); openQuickCreateProfile(el.dataset.which); },
+    testSignIn: el => { testSignIn(el.dataset.which); },
+    testEditConnection: () => { testEditConnection(); },
+    openQuickCreateMapping: () => { openQuickCreateMapping(); },
+    openQuickCreateProperty: () => { openQuickCreateProperty(); },
+    submitQuickCreateProfile: () => { submitQuickCreateProfile(); },
+    submitQuickCreateMapping: () => { submitQuickCreateMapping(); },
+    submitQuickCreateProperty: () => { submitQuickCreateProperty(); },
+    qcmPropertyPicked: el => {
+        document.getElementById('qcmIndexRow').style.display = QCM_LIST_PROPS.has(el.value) ? '' : 'none';
+    },
+});

@@ -686,7 +686,7 @@ def test_both_device_windows_offer_test_sign_in_under_the_profile(world, client_
 		box = re.search(rf'id="{which}SecSelect".*?<input type="hidden" name="sec_profile_id" value="">\s*</div>'
 		                rf'\s*<div class="([^"]*)" id="{which}SigninTest" hidden>', html, re.S)
 		assert box and box.group(1).split() == ["signin-test"]
-		assert f"onclick=\"testSignIn('{which}')\"" in html
+		assert f'data-nr-click="testSignIn" data-which="{which}"' in html
 
 
 def test_admin_profile_id_never_exposed_to_users(world, client_for):
