@@ -104,7 +104,7 @@ prometheus-flask-exporter==0.23.2
     # via -r requirements.in
 psycopg2-binary==2.9.13
     # via -r requirements.in
-pyasn1==0.6.4
+pyasn1==0.6.5
     # via ldap3
 pycparser==3.11
     # via cffi
