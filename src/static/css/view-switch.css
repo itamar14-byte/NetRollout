@@ -1,0 +1,19 @@
+/* The Operations | Administration switch - see templates/_view_switch.html, which loads it. */
+    .nr-view-switch {
+        display: flex; gap: 2px; padding: 3px; flex-shrink: 0;
+        border: 1px solid #2a2a2a; border-radius: 9px; background: #0d0d0d;
+    }
+    .nr-view-switch a {
+        padding: 0.35rem 0.95rem; border-radius: 6px; text-decoration: none; white-space: nowrap;
+        font-family: 'Inter', sans-serif; font-size: 0.8rem; font-weight: 500; color: #a8a8a8;
+        transition: color 0.15s, background 0.15s;
+    }
+    .nr-view-switch a:hover { color: #e0e0e0; background: #171717; }
+    .nr-view-switch a.vs-ops.is-current { color: #00bcd4; background: rgba(0,188,212,0.13); font-weight: 600; }
+    .nr-view-switch a.vs-admin.is-current { color: var(--nr-admin); background: rgba(179,136,255,0.14); font-weight: 600; }
+    .nr-view-switch .vs-short { display: none; }
+    @media (max-width: 767.98px) {
+        .nr-view-switch a { padding: 0.45rem 0.7rem; }
+        .nr-view-switch .vs-long { display: none; }
+        .nr-view-switch .vs-short { display: inline; }
+    }
