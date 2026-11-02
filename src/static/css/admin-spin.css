@@ -1,0 +1,7 @@
+/* The spinning icon and the restart-pending pulse (admin.html, after the Restart script). */
+@keyframes spin { to { transform: rotate(360deg); } }
+.spin { display: inline-block; animation: spin 0.8s linear infinite; }
+@keyframes restartPulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px #ffb74d; }
+  50%       { opacity: 0.4; box-shadow: 0 0 2px #ffb74d; }
+}

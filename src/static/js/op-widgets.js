@@ -1,6 +1,4 @@
 // The operator pages' shared widgets - see templates/_op_widgets_js.html, which loads it.
-// The CSRF token every request the page's scripts send carries (X-CSRFToken).
-const CSRF_TOKEN = document.querySelector('meta[name="csrf-token"]').content;
 
 // ── Reachability (shared by New Rollout and Inventory) ─────────────────────
 // Defined in <head> so page scripts can call it wherever they sit in the

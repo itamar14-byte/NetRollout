@@ -3,4 +3,5 @@
    nrSetReach, ...), the assign board (nrAssignBoard), autoSlug, the icon
    picker (initIconPicker). The CSRF token is the meta tag the script reads. #}
 <meta name="csrf-token" content="{{ csrf_token() }}">
+<script src="{{ asset('js/csrf.js') }}"></script>
 <script src="{{ asset('js/op-widgets.js') }}"></script>

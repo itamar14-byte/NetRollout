@@ -15,10 +15,8 @@
     <style>
         {% block extra_style %}{% endblock %}
     </style>
-    <script>
-        // The CSRF token every request the page's scripts send carries (X-CSRFToken).
-        const CSRF_TOKEN = "{{ csrf_token() }}";
-    </script>
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <script src="{{ asset('js/csrf.js') }}"></script>
 {% include "_escape_js.html" %}
 {% include "_a11y_js.html" %}
 {% include "_rollouts_table_js.html" %}
@@ -175,65 +173,11 @@
 
 {% block extra_script %}{% endblock %}
 
-<script>
-    const admSidebar = document.getElementById("adminSidebar");
-    const admToggle  = document.getElementById("admToggle");
-
-    // on a phone it slides in over the page, opened from the topbar's ☰, and
-    // isn't remembered (it would cover the next page)
-    const admPhone = window.matchMedia("(max-width: 767.98px)");
-    function admRemember(open) {
-        if (admPhone.matches) return;
-        try { localStorage.setItem("admSidebarExpanded", open ? "true" : "false"); } catch (e) { /* none */ }
-    }
-    function admExpand()   { admSidebar.classList.add("expanded"); admRemember(true); }
-    function admCollapse() { admSidebar.classList.remove("expanded"); admRemember(false); }
-
-    try {
-        if (!admPhone.matches && localStorage.getItem("admSidebarExpanded") === "true") admExpand();
-    } catch (e) { /* none */ }
-
-    // the ☰ buttons say whether the sidebar is open, however it was opened
-    nrSyncExpanded(admSidebar, [admToggle, document.getElementById("phoneMenu")]);
-
-    document.getElementById("phoneMenu").addEventListener("click", function(e) {
-        e.stopPropagation();
-        admExpand();
-    });
-
-    admToggle.addEventListener("click", function(e) {
-        e.stopPropagation();
-        admSidebar.classList.contains("expanded") ? admCollapse() : admExpand();
-    });
-
-    admSidebar.addEventListener("click", function(e) {
-        if (!admSidebar.classList.contains("expanded") && !e.target.closest("a")) admExpand();
-    });
-
-    document.addEventListener("click", function(e) {
-        if (admSidebar.classList.contains("expanded") && !admSidebar.contains(e.target)) admCollapse();
-    });
-</script>
+<script src="{{ asset('js/admin.js') }}"></script>
 
 {% with restart_btn='admRestartBtn', restart_icon='adm-sb-icon', restart_label='.adm-sb-label' %}{% include '_restart_script.html' %}{% endwith %}
-<style>
-@keyframes spin { to { transform: rotate(360deg); } }
-.spin { display: inline-block; animation: spin 0.8s linear infinite; }
-@keyframes restartPulse {
-  0%, 100% { opacity: 1; box-shadow: 0 0 6px #ffb74d; }
-  50%       { opacity: 0.4; box-shadow: 0 0 2px #ffb74d; }
-}
-</style>
-<script>
-// System Settings: labels of restart-only settings saved with a new value
-function setSettingsRestartPending(labels) {
-  const dot = document.getElementById('restartPendingDot');
-  const btn = document.getElementById('admRestartBtn');
-  dot.style.display = labels.length ? 'inline-block' : 'none';
-  btn.title = labels.length ? 'Restart required - ' + labels.join(', ') + ' changed'
-                            : 'Restart server';
-}
-</script>
+<link rel="stylesheet" href="{{ asset('css/admin-spin.css') }}">
+<script src="{{ asset('js/restart-pending.js') }}"></script>
 
 {% include '_password_eye.html' %}
 {% include '_confirm_modal.html' %}
