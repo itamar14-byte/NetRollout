@@ -280,3 +280,10 @@ async function runTest() {
         btn.innerHTML = '<i class="bi bi-plug me-1"></i>Test Connection';
     }
 }
+
+// What this page's elements name in data-nr-<event> (js/events.js)
+nrHandlers({
+    togglePw: el => { togglePw(el.dataset.field, el); },
+    saveAssignments: () => { saveAssignments(); },
+    runTest: () => { runTest(); },
+});
