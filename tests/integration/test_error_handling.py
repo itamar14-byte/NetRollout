@@ -5,8 +5,11 @@ import time
 
 import pytest
 
+from src.db.connections import PostgresConfig, PostgresConnection
 from src.encryption import decrypt
 from src.rollout.log import RolloutLogger
+from src.webapp.hooks import login_mng
+from tests.integration.conftest import DEAD_PG_URL
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -21,6 +24,25 @@ def test_backend_outage_renders_db_error_page(client_for, trigger):
 	assert resp.status_code == 503
 	body = resp.get_data(as_text=True)
 	assert "running" in body  # health of the app's own (healthy) services
+
+
+def test_static_files_load_for_a_signed_in_user_while_postgres_is_down(
+		client_for, make_user, monkeypatch):
+	"""While Postgres is down, a signed-in browser still gets the static files
+	(the error page's fonts, any page's scripts): no request hook loads the
+	user for them. A page gets the 503 error page, not a bare 500 (rendering
+	it doesn't load the user again)."""
+	client = client_for(make_user())
+
+	def postgres_down(user_id):
+		PostgresConnection(PostgresConfig(url=DEAD_PG_URL)).test_connection()
+	monkeypatch.setattr(login_mng, "_user_callback", postgres_down)
+	static = client.get("/static/js/csrf.js")
+	assert static.status_code == 200
+	static.close()
+	page = client.get("/dashboard")
+	assert page.status_code == 503
+	assert "running" in page.get_data(as_text=True)   # the error page's service list
 
 
 @pytest.mark.parametrize("trigger", ["pg_down", "redis_timeout"])

@@ -12,7 +12,7 @@ import uuid
 from typing import Any
 
 import flask_wtf.csrf as csrf_err
-from flask import Flask, Response, flash, redirect, render_template, request, session, url_for
+from flask import Flask, Response, flash, g, redirect, render_template, request, session, url_for
 from flask.typing import ResponseReturnValue
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -21,7 +21,7 @@ from flask_wtf import CSRFProtect
 from prometheus_flask_exporter import PrometheusMetrics
 from redis.exceptions import ConnectionError as RedisConnectionError, \
 	TimeoutError as RedisTimeoutError
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from src.accounts.users import (ABSOLUTE_SESSION_HOURS, LAST_ACTIVE, NO_SESSION_PATHS,
@@ -193,7 +193,10 @@ def register_auth(app: NetRolloutApp) -> None:
 		(_idle_timeout.html)."""
 		if not current_user.is_authenticated:
 			return {}
-		return {"NR_IDLE_SECONDS": current_app.sessions.idle_seconds()}
+		try:
+			return {"NR_IDLE_SECONDS": current_app.sessions.idle_seconds()}
+		except SQLAlchemyError:                  # Postgres down: the error page
+			return {}
 
 	@app.before_request
 	def require_password_change() -> ResponseReturnValue | None:
@@ -201,10 +204,12 @@ def register_auth(app: NetRolloutApp) -> None:
 		but pick their own password (or leave).
 
 		:returns: None: go on; else the way to the change page"""
+		# the endpoint first: current_user loads the user from Postgres, and
+		# while Postgres is down the error page's own /static files must load
+		if request.endpoint in PASSWORD_CHANGE_ALLOWED:
+			return None
 		if not (current_user.is_authenticated
 		        and current_user.must_change_password):
-			return None
-		if request.endpoint in PASSWORD_CHANGE_ALLOWED:
 			return None
 		if Caller.SCRIPT.wants_json():
 			return err("Change your password first", 403,
@@ -243,6 +248,11 @@ def register_handlers(app: Flask, backend: BackendServices) -> None:
 		if Caller.STREAM_AWARE.wants_json():
 			return err("a backend service is unavailable", 503)
 
+		# the user wasn't loaded (that failed too): the page is rendered for
+		# no one in particular - else the pages' context processors would try
+		# again, and the error handler's own error leaves a bare 500
+		if "_login_user" not in g:              # Flask-Login's per-request user
+			g._login_user = login_mng.anonymous_user()
 		res = backend.health()
 		return render_template("db_error.html", **backend.addresses(),
 		                       postgres=res["POSTGRES"],

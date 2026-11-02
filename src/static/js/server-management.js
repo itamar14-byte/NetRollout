@@ -941,10 +941,14 @@
     .then(data => {
       spin.style.display = 'none';
       ico.style.display  = 'inline-block';
+      // the list may have been drawn again meanwhile (a Save reloads it, the
+      // panel closed): fill in the panel showing now, if this server's is open
       const res = document.getElementById(`e_${id}_result`);
+      const dn  = document.getElementById(`e_${id}_dn`);
+      if (!res || !dn) return;
       res.style.display = 'block';
       if (data.status === 'ok') {
-        document.getElementById(`e_${id}_dn`).value = data.base_dn;
+        dn.value = data.base_dn;
         res.innerHTML = `<span class="res-ok"><i class="bi bi-check-circle me-1"></i>Base DN populated</span>`;
       } else {
         res.innerHTML = `<span class="res-err"><i class="bi bi-x-circle me-1"></i>${nrEscape(data.message)}</span>`;
