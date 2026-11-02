@@ -297,7 +297,7 @@ class Answer:
 		return self.body.decode(errors="replace")
 
 
-CSRF_RE = re.compile(r'name="csrf_token" value="([^"]+)"|CSRF_TOKEN = "([^"]+)"')
+CSRF_RE = re.compile(r'name="csrf_token" value="([^"]+)"|(?:name="csrf-token" content="|CSRF_TOKEN = ")([^"]+)"')
 
 
 class Browser:

@@ -152,7 +152,7 @@ def test_the_inventory_tooltip_shows_a_hostnames_address():
 def test_a_name_that_doesnt_resolve_says_so_where_reachability_shows():
 	"""Not reachable because the name doesn't resolve reads "Not reachable
 	(can't resolve)": the inventory's dot and tooltip, New Rollout's rows."""
-	widgets = (TEMPLATES / "_op_widgets_js.html").read_text(encoding="utf-8")
+	widgets = (STATIC / "js" / "op-widgets.js").read_text(encoding="utf-8")
 	assert "return status && !status.reachable && status.unresolved ? \" (can't resolve)\" : '';" in widgets
 	assert "unknown: 'Reachability unknown'}[state] + nrReachWhy(status);" in widgets
 	assert "(reach.reachable ? 'Reachable' : 'Not reachable') + nrReachWhy(reach)" in 		(TEMPLATES / "inventory.html").read_text(encoding="utf-8")
@@ -173,7 +173,7 @@ def test_the_assign_boards_search_narrows_both_columns_and_survives_moves():
 	"""Both assign windows (a profile's devices, a mapping's) have one search
 	box: name, address or platform; the board keeps the query across moves
 	(render reads it) and empties it for a new board; Escape clears it first."""
-	widgets = (TEMPLATES / "_op_widgets_js.html").read_text(encoding="utf-8")
+	widgets = (STATIC / "js" / "op-widgets.js").read_text(encoding="utf-8")
 	assert "const devs = all.filter(matches);" in widgets
 	assert "[d.label, d.ip, d.device_type, (d.device_type || '').replace(/_/g, ' ')]" in widgets
 	assert "opts.search.value = '';" in widgets
