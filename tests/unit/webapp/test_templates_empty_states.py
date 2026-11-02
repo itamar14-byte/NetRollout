@@ -8,11 +8,20 @@ import re
 from pathlib import Path
 
 TEMPLATES = Path(__file__).resolve().parents[3] / "templates"
+# the pages' own scripts and styles, moved out of the templates (not vendor/)
+STATIC = Path(__file__).resolve().parents[3] / "src" / "static"
+
+
+def page_sources(*suffixes: str) -> list[Path]:
+	""":returns: every template, and every file of src/static/ with one of
+	 the suffixes ('.js', '.css') outside its vendor/ folder"""
+	return sorted(TEMPLATES.glob("*.html")) + sorted(
+		p for p in STATIC.rglob("*") if p.suffix in suffixes and "vendor" not in p.relative_to(STATIC).parts)
 LOOSE = re.compile(r"\.empty-(?:state|wrap)\s+i\b")
 
 
 def test_no_empty_state_rule_styles_the_icons_in_its_buttons():
-	loose = [f"{path.name}: {line.strip()}" for path in sorted(TEMPLATES.rglob("*.html"))
+	loose = [f"{path.name}: {line.strip()}" for path in page_sources(".css")
 	         for line in path.read_text(encoding="utf-8").splitlines() if LOOSE.search(line)]
 	assert loose == []
 
@@ -24,7 +33,7 @@ def test_every_empty_state_icon_is_visible():
 	"""Each empty state's big icon takes the theme's colour for decorative icons
 	(--nr-text-faint, at least 3:1 on the page): the near-black ones (#1e1e1e,
 	#222 on a #1c1c1c card) were invisible."""
-	rules = [(path.name, body) for path in sorted(TEMPLATES.rglob("*.html"))
+	rules = [(path.name, body) for path in page_sources(".css")
 	         for body in ICON_RULE.findall(path.read_text(encoding="utf-8"))]
 	assert len(rules) >= 6
 	assert [name for name, body in rules if "color: var(--nr-text-faint)" not in body] == []

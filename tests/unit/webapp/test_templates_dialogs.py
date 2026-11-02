@@ -9,6 +9,15 @@ from pathlib import Path
 import pytest
 
 TEMPLATES = Path(__file__).resolve().parents[3] / "templates"
+# the pages' own scripts and styles, moved out of the templates (not vendor/)
+STATIC = Path(__file__).resolve().parents[3] / "src" / "static"
+
+
+def page_sources(*suffixes: str) -> list[Path]:
+	""":returns: every template, and every file of src/static/ with one of
+	 the suffixes ('.js', '.css') outside its vendor/ folder"""
+	return sorted(TEMPLATES.glob("*.html")) + sorted(
+		p for p in STATIC.rglob("*") if p.suffix in suffixes and "vendor" not in p.relative_to(STATIC).parts)
 # a call of the browser's own (window.confirm( too), not nrConfirm( or x.confirm(
 NATIVE = re.compile(r"(?<![\w.$])(?:window\.)?(?:confirm|alert|prompt)\s*\(")
 JINJA_COMMENT = re.compile(r"\{#.*?#\}", re.S)
@@ -37,9 +46,9 @@ def test_the_check_finds_native_calls_only(line, found):
 
 
 def test_no_template_uses_the_browsers_dialogs():
-	"""Every template: none calls confirm(), alert() or prompt()."""
+	"""Every template and page script: none calls confirm(), alert() or prompt()."""
 	found = {path.name: native_calls(path.read_text(encoding="utf-8"))
-	         for path in TEMPLATES.glob("*.html")}
+	         for path in page_sources(".js")}
 	assert {name: lines for name, lines in found.items() if lines} == {}
 
 
@@ -55,7 +64,7 @@ def test_no_template_raises_a_backdrop_or_window_by_css():
 	New Profile over Edit device was dimmed and took no click (Q2.2). Levels
 	are set when a window opens, never by a fixed CSS rule."""
 	found = {path.name: [m.group(0) for m in (*BACKDROP_SIBLING.finditer(text), *FIXED_LEVEL.finditer(text))]
-	         for path in TEMPLATES.glob("*.html")
+	         for path in page_sources(".css")
 	         if (text := JINJA_COMMENT.sub("", path.read_text(encoding="utf-8")))}
 	assert {name: rules for name, rules in found.items() if rules} == {}
 

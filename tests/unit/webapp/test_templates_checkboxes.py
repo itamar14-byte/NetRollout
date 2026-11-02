@@ -10,6 +10,15 @@ from pathlib import Path
 import pytest
 
 TEMPLATES = Path(__file__).resolve().parents[3] / "templates"
+# the pages' own scripts and styles, moved out of the templates (not vendor/)
+STATIC = Path(__file__).resolve().parents[3] / "src" / "static"
+
+
+def page_sources(*suffixes: str) -> list[Path]:
+	""":returns: every template, and every file of src/static/ with one of
+	 the suffixes ('.js', '.css') outside its vendor/ folder"""
+	return sorted(TEMPLATES.glob("*.html")) + sorted(
+		p for p in STATIC.rglob("*") if p.suffix in suffixes and "vendor" not in p.relative_to(STATIC).parts)
 BOX = re.compile(r"""<input\b[^>]*?type\s*=\s*["']checkbox["'][^>]*>""", re.S | re.I)
 CLASS = re.compile(r"""\bclass\s*=\s*["']([^"']*)["']""")
 STYLE = re.compile(r"""\bstyle\s*=\s*["']([^"']*)["']""", re.S)
@@ -41,7 +50,7 @@ def script_boxes() -> list[tuple[str, int, str, str]]:
 	""":returns: (template, line, variable, the script around it) for every
 	 check box a script builds"""
 	found = []
-	for path in sorted(TEMPLATES.glob("*.html")):
+	for path in page_sources(".js"):
 		text = path.read_text(encoding="utf-8")
 		for m in JS_BOX.finditer(text):
 			found.append((path.name, text.count("\n", 0, m.start()) + 1, m.group(1),

@@ -11,6 +11,15 @@ from pathlib import Path
 import pytest
 
 TEMPLATES = Path(__file__).resolve().parents[3] / "templates"
+# the pages' own scripts and styles, moved out of the templates (not vendor/)
+STATIC = Path(__file__).resolve().parents[3] / "src" / "static"
+
+
+def page_sources(*suffixes: str) -> list[Path]:
+	""":returns: every template, and every file of src/static/ with one of
+	 the suffixes ('.js', '.css') outside its vendor/ folder"""
+	return sorted(TEMPLATES.glob("*.html")) + sorted(
+		p for p in STATIC.rglob("*") if p.suffix in suffixes and "vendor" not in p.relative_to(STATIC).parts)
 JINJA = re.compile(r"\{#.*?#\}|\{%.*?%\}|\{\{.*?\}\}", re.S)
 SCRIPT = re.compile(r"<script\b[^>]*>(.*?)</script>", re.S | re.I)
 HANDLER = re.compile(r"""\bon[a-z]+\s*=\s*(?:"([^"]*)"|'([^']*)')""")
@@ -63,10 +72,10 @@ def published() -> set[str]:
 	""":returns: every name a page can reach from HTML, from all templates
 	 (the skeletons and partials publish for the pages that include them)"""
 	names: set[str] = set()
-	for path in TEMPLATES.rglob("*.html"):
+	for path in page_sources(".js"):
 		text = JINJA.sub("", path.read_text(encoding="utf-8"))
 		names |= set(WINDOW_NAME.findall(text))
-		for script in SCRIPT.findall(text):
+		for script in (SCRIPT.findall(text) if path.suffix == ".html" else [text]):
 			names |= top_level_names(script)
 	return names
 
@@ -95,7 +104,7 @@ def test_every_inline_handler_calls_a_published_function():
 	"""No template's inline handler calls a function its page can't reach -
 	the old Active Jobs (confirmCancel inside the page's function) fails."""
 	names = published()
-	unreachable = {path.relative_to(TEMPLATES).as_posix(): sorted(calls - names)
-	               for path in TEMPLATES.rglob("*.html")
+	unreachable = {path.name: sorted(calls - names)
+	               for path in page_sources(".js")
 	               if (calls := handler_calls(path.read_text(encoding="utf-8"))) - names}
 	assert unreachable == {}
