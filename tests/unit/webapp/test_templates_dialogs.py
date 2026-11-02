@@ -155,7 +155,8 @@ def test_the_inventory_tooltip_shows_a_hostnames_address():
 	assert "resolved ? shown + ' (' + resolved + ')' : shown;" in source
 	# a bare name shown as it's reached: with System Settings' DNS suffix
 	assert "const shown = suffix && !/[.:]/.test(device.ip) ? device.ip + '.' + suffix : device.ip;" in source
-	assert "const DNS_SUFFIX     = {{ (dns_suffix or '') | tojson }};" in source
+	assert "const DNS_SUFFIX     = nrData('nr-dns-suffix');" in source
+	assert '<script type="application/json" id="nr-dns-suffix">{{ (dns_suffix or \'\') | tojson }}</script>' in source
 	assert "#ttIp { white-space: normal; overflow-wrap: anywhere; }" in source
 
 
