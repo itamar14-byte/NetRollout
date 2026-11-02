@@ -36,3 +36,9 @@
       el.textContent = visible;
     });
   }
+
+// What this page's elements name in data-nr-<event> (js/events.js)
+nrHandlers({
+    kickAll: el => { kickAll(el); },
+    kick: el => { kick(el.dataset.userId); },
+});
