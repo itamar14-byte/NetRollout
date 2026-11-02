@@ -1,0 +1,21 @@
+The vendor and service logos NetRollout shows, as their sources served them
+on 2026-11-02 (sha256 in ../SHA256SUMS). The brands are their owners'
+trademarks, shown only to name a device's platform or a service.
+
+Simple Icons 16.36.0 (CC0 1.0 - simple-icons-LICENSE.md; read
+simple-icons-DISCLAIMER.md on trademarks), from cdn.simpleicons.org, which
+fills each icon with the brand's colour (or the colour asked for); the paths
+are those of the npm package simple-icons@16.36.0:
+  cisco.svg, junipernetworks.svg, fortinet.svg, paloaltonetworks.svg, hp.svg,
+  grafana.svg, postgresql-336791.svg (postgresql in #336791)
+
+homarr-labs/dashboard-icons, commit 83f32e08257b66fbd971ac8d7645f5b38d52e85d
+(Apache License 2.0 - dashboard-icons-LICENSE):
+  aruba.svg, check-point.svg
+
+devicons/devicon, commit 32fe1d3b3f36ad11f90ab94f7db59738139c2bf6 (v2.18.0;
+MIT - devicon-LICENSE):
+  redis-original.svg
+
+Wikimedia Commons (public domain, trademarked - Arista-networks-logo.LICENSE.txt):
+  Arista-networks-logo.svg

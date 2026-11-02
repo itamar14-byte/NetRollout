@@ -46,26 +46,26 @@ from src.webapp.lifecycle import Maintenance, Shutdown, register_maintenance
 from src.webapp.startup import new_instance_token
 
 
-_CDN = "https://cdn.simpleicons.org"
-# Simple Icons has no Arista, Aruba or Check Point logo: those come from the
-# dashboard-icons collection (jsDelivr) and Wikimedia Commons. Arista's is a
-# dark wordmark - operator_base.html shows it white on the dark theme.
-_ICONS = "https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/svg"
-ARISTA_LOGO = "https://upload.wikimedia.org/wikipedia/commons/9/99/Arista-networks-logo.svg"
-VENDOR_LOGOS = {
-	'cisco_ios': f'{_CDN}/cisco',
-	'cisco_xe': f'{_CDN}/cisco',
-	'cisco_xr': f'{_CDN}/cisco',
-	'cisco_nxos': f'{_CDN}/cisco',
-	'juniper_junos': f'{_CDN}/junipernetworks',
-	'arista_eos': ARISTA_LOGO,
-	'fortinet': f'{_CDN}/fortinet',
-	'paloalto_panos': f'{_CDN}/paloaltonetworks',
-	'aruba_aoscx': f'{_ICONS}/aruba.svg',
-	'checkpoint_gaia': f'{_ICONS}/check-point.svg',
-	'hp_procurve': f'{_CDN}/hp',
-	'hp_comware': f'{_CDN}/hp',
-}
+# Served from the image (src/static/vendor/logos, their sources and licences in
+# SOURCES.txt there): Simple Icons' logos in the brand's colour, and - Simple
+# Icons has none for them - Aruba's and Check Point's from the dashboard-icons
+# collection and Arista's wordmark from Wikimedia Commons. Arista's is dark -
+# operator_base.html shows it white on the dark theme.
+_LOGOS = "/static/vendor/logos"
+VENDOR_LOGOS = {device_type: f"{_LOGOS}/{name}.svg?v={VERSION}" for device_type, name in {
+	'cisco_ios': 'cisco',
+	'cisco_xe': 'cisco',
+	'cisco_xr': 'cisco',
+	'cisco_nxos': 'cisco',
+	'juniper_junos': 'junipernetworks',
+	'arista_eos': 'Arista-networks-logo',
+	'fortinet': 'fortinet',
+	'paloalto_panos': 'paloaltonetworks',
+	'aruba_aoscx': 'aruba',
+	'checkpoint_gaia': 'check-point',
+	'hp_procurve': 'hp',
+	'hp_comware': 'hp',
+}.items()}
 
 
 class _SafeRedisSessionInterface(RedisSessionInterface):

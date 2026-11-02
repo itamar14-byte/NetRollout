@@ -1,0 +1,10 @@
+Arista-networks-logo.svg
+Source: https://commons.wikimedia.org/wiki/File:Arista-networks-logo.svg
+(file sha1 2e4ccb0e31cc78e485e40dda2781610aa92a4bf9, as Wikimedia Commons lists it)
+
+Wikimedia Commons licence: Public domain (the logo consists only of simple
+text and shapes, below the threshold of originality). Restrictions: trademarked.
+
+"Arista" and the Arista Networks logo are trademarks of Arista Networks, Inc.
+NetRollout shows the logo only to name the platform of a device (nominative
+use); it implies no endorsement.
