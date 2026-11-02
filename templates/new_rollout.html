@@ -30,7 +30,7 @@
                                 <img class="device-logo"
                                      src="{{ VENDOR_LOGOS[device.device_type] }}"
                                      alt="{{ device.device_type }}"
-                                     onerror="this.style.display='none';this.nextElementSibling.style.display='flex';">
+                                     data-nr-error="nrHide" data-nr-fallback="flex">
                                 <span class="device-logo-fallback" style="display:none;">
                                     <i class="bi bi-hdd-network"></i>
                                 </span>
@@ -200,8 +200,8 @@
                                   border-radius:6px; padding:0.5rem 0.75rem;
                                   font-family:'Inter',sans-serif; font-size:0.8rem;
                                   color:#ccc; outline:none; transition:border-color 0.15s;"
-                           onfocus="this.style.borderColor='rgba(0,188,212,0.35)'"
-                           onblur="this.style.borderColor='#222'">
+                           data-nr-focus="nrHover" data-nr-hover-style="border-color:rgba(0,188,212,0.35)"
+                           data-nr-blur="nrRest" data-nr-rest-style="border-color:#222">
                 </div>
             </div>
 

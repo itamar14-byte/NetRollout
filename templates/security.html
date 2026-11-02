@@ -350,7 +350,7 @@
                                 <img alt="" src="{{ VENDOR_LOGOS.get(d.device_type, '') }}"
                                      width="16" height="16"
                                      style="border-radius:3px; flex-shrink:0; opacity:0.85;"
-                                     onerror="this.style.display='none'">
+                                     data-nr-error="nrHide">
                                 <span class="opt-label">{{ d.label }}</span>
                                 <span class="opt-sub">{{ d.ip }}</span>
                                 <i class="bi bi-check2 opt-check"></i>

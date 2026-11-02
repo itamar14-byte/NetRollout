@@ -19,7 +19,7 @@
       {% if current_user.role == 'admin' and selected_user != 'me' %}
         Viewing: <span class="nr-accent">{{ selected_username }}</span>
         &nbsp;·&nbsp;<a href="{{ url_for('analytics.analytics') }}" style="color:var(--nr-text-muted); text-decoration:none;"
-                         onmouseenter="this.style.color='#00bcd4'" onmouseleave="this.style.color='var(--nr-text-muted)'">back to my data</a>
+                         data-nr-mouseenter="nrHover" data-nr-hover-style="color:#00bcd4" data-nr-mouseleave="nrRest" data-nr-rest-style="color:var(--nr-text-muted)">back to my data</a>
       {% else %}
         {{ current_user.username }} · 30-day window · live data
       {% endif %}
@@ -174,8 +174,8 @@
       <button class="btn btn-sm" onclick="exportCsv()"
               style="background:none; border:1px solid #2a2a2a; color:var(--nr-text-muted); font-size:0.78rem;"
               title="Export CSV"
-              onmouseenter="this.style.borderColor='#444';this.style.color='#aaa'"
-              onmouseleave="this.style.borderColor='#2a2a2a';this.style.color='var(--nr-text-muted)'">
+              data-nr-mouseenter="nrHover" data-nr-hover-style="border-color:#444; color:#aaa"
+              data-nr-mouseleave="nrRest" data-nr-rest-style="border-color:#2a2a2a; color:var(--nr-text-muted)">
         <i class="bi bi-download"></i>
       </button>
     </div>

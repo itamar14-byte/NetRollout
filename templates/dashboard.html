@@ -443,7 +443,7 @@
             <div class="nr-help">
                 {{ kpi.top_failed.fail_count }} failure{{ 's' if kpi.top_failed.fail_count != 1 }}
                 · <a href="{{ url_for('jobs.results') }}" style="color:var(--nr-text-muted); text-decoration:none;"
-                     onmouseenter="this.style.color='#00bcd4'" onmouseleave="this.style.color='var(--nr-text-muted)'">see results</a>
+                     data-nr-mouseenter="nrHover" data-nr-hover-style="color:#00bcd4" data-nr-mouseleave="nrRest" data-nr-rest-style="color:var(--nr-text-muted)">see results</a>
             </div>
             {% else %}
             <div style="font-family:'JetBrains Mono',monospace; font-size:1.7rem; font-weight:700; line-height:1; color:var(--nr-text-muted);">-</div>

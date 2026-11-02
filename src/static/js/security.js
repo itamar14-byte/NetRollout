@@ -175,7 +175,7 @@ function initTestDevSelect() {
             const logoHtml = logoUrl
                 ? `<img alt="" src="${nrEscape(logoUrl)}" width="16" height="16"
                         style="border-radius:3px;opacity:0.85;flex-shrink:0;"
-                        onerror="this.style.display='none'">`
+                        data-nr-error="nrHide">`
                 : '<i class="bi bi-router" style="font-size:0.85rem;color:var(--nr-text-faint);flex-shrink:0;"></i>';
             display.innerHTML =
                 logoHtml +

@@ -166,7 +166,7 @@ function initPlatformSelect(containerId, hiddenId, errorId) {
             const logoHtml = logoUrl
                 ? `<img alt="" src="${nrEscape(logoUrl)}" width="16" height="16"
                         style="border-radius:3px;opacity:0.85;flex-shrink:0;"
-                        onerror="this.style.display='none'">`
+                        data-nr-error="nrHide">`
                 : '';
             display.innerHTML =
                 logoHtml +

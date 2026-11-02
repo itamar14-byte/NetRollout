@@ -62,7 +62,7 @@
                     style="width:16px;height:16px;object-fit:contain;
                            filter:brightness(0) invert(1);opacity:0.5;
                            margin-right:0.45rem;"
-                    onerror="this.style.display='none'">`
+                    data-nr-error="nrHide">`
             : `<i class="bi bi-hdd-network" style="font-size:0.85rem;color:var(--nr-text-faint);margin-right:0.45rem;"></i>`;
 
         const wrap = document.createElement("div");

@@ -56,8 +56,8 @@
         <div class="prop-actions">
             <button aria-label="Edit property" title="Edit property" class="btn btn-sm"
                     style="background:none; border:1px solid #222; color:var(--nr-text-muted); padding:2px 8px; font-size: 0.75rem;"
-                    onmouseenter="this.style.borderColor='#444';this.style.color='#aaa';"
-                    onmouseleave="this.style.borderColor='#222';this.style.color='var(--nr-text-muted)';"
+                    data-nr-mouseenter="nrHover" data-nr-hover-style="border-color:#444; color:#aaa"
+                    data-nr-mouseleave="nrRest" data-nr-rest-style="border-color:#222; color:var(--nr-text-muted)"
                     data-id="{{ p.id }}" data-label="{{ p.label }}" data-icon="{{ p.icon }}"
                     data-is-list="{{ 'true' if p.is_list else 'false' }}"
                     onclick="openEditProp(this.dataset.id, this.dataset.label, this.dataset.icon, this.dataset.isList === 'true')">
@@ -65,8 +65,8 @@
             </button>
             <button aria-label="Delete property" title="Delete property" class="btn btn-sm"
                     style="background:none; border:1px solid #222; color:var(--nr-text-muted); padding:2px 8px; font-size: 0.75rem;"
-                    onmouseenter="this.style.borderColor='#ef5350';this.style.color='#ef5350';"
-                    onmouseleave="this.style.borderColor='#222';this.style.color='var(--nr-text-muted)';"
+                    data-nr-mouseenter="nrHover" data-nr-hover-style="border-color:#ef5350; color:#ef5350"
+                    data-nr-mouseleave="nrRest" data-nr-rest-style="border-color:#222; color:var(--nr-text-muted)"
                     data-id="{{ p.id }}" data-name="{{ p.name }}"
                     onclick="deleteProp(this.dataset.id, this.dataset.name)">
                 <i class="bi bi-trash"></i>
@@ -121,8 +121,8 @@
                     </div>
                     <a href="https://icons.getbootstrap.com" target="_blank" rel="noopener"
                        style="font-size: 0.75rem; color:var(--nr-text-muted); text-decoration:none;"
-                       onmouseenter="this.style.color='#00bcd4'"
-                       onmouseleave="this.style.color='var(--nr-text-muted)'">
+                       data-nr-mouseenter="nrHover" data-nr-hover-style="color:#00bcd4"
+                       data-nr-mouseleave="nrRest" data-nr-rest-style="color:var(--nr-text-muted)">
                         Browse Bootstrap Icons ↗
                     </a>
                 </div>
