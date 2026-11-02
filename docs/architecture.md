@@ -99,7 +99,7 @@ Versions are the major.minor in use at the time of writing; the exact pins are i
 | Directory sign-in | ldap3 | 2.9 | `requirements.txt` |
 | Two-factor | pyotp (TOTP), qrcode + Pillow (enrolment QR code) | 2.10, 8.2, 12.3 | `requirements.txt` |
 | Other runtime | python-dotenv (`runtime.env`, `.env`), tzlocal + tzdata, packaging (version comparison) | 1.2, 5.4, 26 | `requirements.txt` |
-| Frontend | Server-rendered Jinja templates; Bootstrap, Bootstrap Icons, jQuery + jQuery QueryBuilder (Analytics); Inter and JetBrains Mono fonts. Per-page CSS and JS inline, no build step | 5.3, 1.11, 3.6 + 2.6 | `templates/` (CDN links) |
+| Frontend | Server-rendered Jinja templates; Bootstrap, Bootstrap Icons, jQuery + jQuery QueryBuilder (Analytics); Inter and JetBrains Mono fonts; the vendor logos. Per-page CSS and JS in files, no build step; a Content-Security-Policy without inline scripts | 5.3.2, 1.11.3, 3.6.0 + 2.6.0 | `templates/`, `src/static/` (`vendor/`: served from the image, no CDN) |
 | Reverse proxy | nginx | 1.30 (Alpine) | `deploy/nginx/Dockerfile` |
 | Database | PostgreSQL (any 13+ works; the bundled one is 17) | 17 (Debian bookworm) | `compose.yaml` |
 | Queue, sessions, live state | Redis | 8.6 (Alpine) | `compose.yaml` |
@@ -268,13 +268,17 @@ What installing and running NetRollout decides and writes, once for Windows and 
 
 Prometheus' `/metrics` is added by prometheus-flask-exporter (nginx answers it with 404; Prometheus scrapes the app directly). Blueprints reach the services through `current_app` inside routes, never at module level, and `url_for` always names the blueprint (`"auth.home"`, `"jobs.dashboard"`).
 
-`tests/integration/test_route_matrix.py` checks every route: all require sign-in except the public ones (sign-in, Request access, the two 2FA pages, which work on the half-done sign-in in the session, sign-out, `/_netrollout/health`, `/_netrollout/instance` and `/metrics`), and every `/admin` route requires the admin role. `/_netrollout/grafana-auth` answers a bare 401 instead of the sign-in redirect, because its caller is nginx.
+`tests/integration/test_route_matrix.py` checks every route: all require sign-in except the public ones (sign-in, Request access, the two 2FA pages, which work on the half-done sign-in in the session, sign-out, `/_netrollout/health`, `/_netrollout/instance`, `/_netrollout/csp-report` (where browsers report what the Content-Security-Policy blocked: logged, nothing else) and `/metrics`), and every `/admin` route requires the admin role. `/_netrollout/grafana-auth` answers a bare 401 instead of the sign-in redirect, because its caller is nginx.
 
 ### `templates/`
 
 - **Three skeletons**: `base.html` (the sign-in, register, 2FA and password pages), `operator_base.html` (every operator page), `admin.html` (the admin panel, with its own sidebar and topbar). Every page extends one of them.
-- **Shared includes**, named with a leading underscore, are written once: the theme (`_theme_core_css.html`, `_theme_pages_css.html`, `_classes_css.html`), the footer with the version and the source link (`_footer.html`), the idle sign-out warning (`_idle_timeout.html`), the drain and maintenance banners, the Restart dialog, the shared widgets (`_op_widgets_js.html`, `_rollouts_table_js.html`), the password rule (`_password_rule_script.html`) and `nrEscape()` (`_escape_js.html`, which every script uses before putting a value into HTML).
-- **Error pages**: `404.html`, `db_error.html` (which service is down), `key_error.html` (the encryption key does not match), `maintenance.html`.
+- **Shared includes**, named with a leading underscore, are written once: the footer with the version and the source link (`_footer.html`), the idle sign-out warning (`_idle_timeout.html`), the drain and maintenance banners, the Restart dialog, the shared widgets (`_op_widgets_js.html`, `_rollouts_table_js.html`), the password rule (`_password_rule_script.html`) and `nrEscape()` (`_escape_js.html`, which every script uses before putting a value into HTML). A partial's script or style is a file of `src/static/` it loads.
+- **Error pages**: `404.html`, `db_error.html` (which service is down; its styles stay inline - while Postgres is down a signed-in browser's `/static` requests fail too), `key_error.html` (the encryption key does not match), `maintenance.html`.
+
+### `src/static/`
+
+The pages' own scripts and styles, no build step: `js/<page>.js` and `css/<page>.css`, and the shared ones (`css/theme-core.css`, `theme-pages.css`, `classes.css` - the theme every skeleton links -, `js/op-widgets.js`, `js/events.js`, ...). `vendor/` holds the third-party files as published (Bootstrap, Bootstrap Icons, jQuery, jQuery QueryBuilder with its templates compiled ahead, the Inter and JetBrains Mono fonts, the vendor logos), each with its licence, their sha256 in `vendor/SHA256SUMS` (checked by `tests/unit/webapp/test_vendor.py`): the web app loads nothing from another site. Templates link a file with `{{ asset('js/x.js') }}` (`/static/js/x.js?v=<VERSION>`, so an update never runs a cached old script). Jinja values reach a script as JSON (`<script type="application/json" id="nr-...">`, read with `nrData(id)`) or as the script tag's `data-*`; handlers as `data-nr-<event>="name"` (`js/events.js`), never inline - the Content-Security-Policy (`hooks.content_security_policy`) allows no inline script.
 
 ### `deploy/`
 
