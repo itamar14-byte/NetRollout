@@ -1,0 +1,29 @@
+/* Live Sessions - see templates/live_sessions.html. */
+  .session-count {
+    font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; font-weight:700;
+    padding:0.15rem 0.5rem; border-radius:10px;
+    background:rgba(0,188,212,0.07); color:#00bcd4; border:1px solid rgba(0,188,212,0.2);
+  }
+
+  .session-table { width:100%; border-collapse:collapse; }
+  /* Phones: a table too wide scrolls inside its card */
+  @media (max-width: 767.98px) { .session-table { display:block; overflow-x:auto; white-space:nowrap; } }
+  .session-table th {
+    font-family:'Inter',sans-serif; font-size: 0.6875rem; font-weight:600;
+    text-transform:uppercase; letter-spacing:1px; color:var(--nr-text-muted);
+    padding:0.5rem 0.75rem; border-bottom:1px solid #1a1a1a; text-align:left;
+  }
+  .session-table td {
+    padding:0.6rem 0.75rem; border-bottom:1px solid #141414; vertical-align:middle;
+  }
+  .session-table tr:last-child td { border-bottom:none; }
+  .session-table tr:hover td { background:rgba(0,188,212,0.02); }
+  .session-table tr.kicking td { opacity:0.4; pointer-events:none; transition:opacity 0.3s; }
+  .session-table tr.kicked { display:none; }
+
+  .auth-badge {
+    font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; font-weight:700;
+    letter-spacing:1.5px; padding:0.15rem 0.45rem; border-radius:3px; border:1px solid;
+  }
+  .auth-badge.local { background:rgba(100,100,100,0.08); color:var(--nr-text-muted); border-color:#222; }
+  .auth-badge.ldap  { background:rgba(128,222,234,0.08); color:#80deea; border-color:rgba(128,222,234,0.2); }

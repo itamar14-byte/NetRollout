@@ -175,74 +175,7 @@
 </div>
 {% endif %}
 
-<style>
-  .session-count {
-    font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; font-weight:700;
-    padding:0.15rem 0.5rem; border-radius:10px;
-    background:rgba(0,188,212,0.07); color:#00bcd4; border:1px solid rgba(0,188,212,0.2);
-  }
+<link rel="stylesheet" href="{{ asset('css/live-sessions.css') }}">
 
-  .session-table { width:100%; border-collapse:collapse; }
-  /* Phones: a table too wide scrolls inside its card */
-  @media (max-width: 767.98px) { .session-table { display:block; overflow-x:auto; white-space:nowrap; } }
-  .session-table th {
-    font-family:'Inter',sans-serif; font-size: 0.6875rem; font-weight:600;
-    text-transform:uppercase; letter-spacing:1px; color:var(--nr-text-muted);
-    padding:0.5rem 0.75rem; border-bottom:1px solid #1a1a1a; text-align:left;
-  }
-  .session-table td {
-    padding:0.6rem 0.75rem; border-bottom:1px solid #141414; vertical-align:middle;
-  }
-  .session-table tr:last-child td { border-bottom:none; }
-  .session-table tr:hover td { background:rgba(0,188,212,0.02); }
-  .session-table tr.kicking td { opacity:0.4; pointer-events:none; transition:opacity 0.3s; }
-  .session-table tr.kicked { display:none; }
-
-  .auth-badge {
-    font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; font-weight:700;
-    letter-spacing:1.5px; padding:0.15rem 0.45rem; border-radius:3px; border:1px solid;
-  }
-  .auth-badge.local { background:rgba(100,100,100,0.08); color:var(--nr-text-muted); border-color:#222; }
-  .auth-badge.ldap  { background:rgba(128,222,234,0.08); color:#80deea; border-color:rgba(128,222,234,0.2); }
-</style>
-
-<script>
-  function kick(userId) {
-    const row = document.getElementById(`row-${userId}`);
-    row.classList.add('kicking');
-
-    return fetch(`/admin/sessions/${userId}/kick`, {
-      method: 'POST',
-      headers: { 'X-CSRFToken': CSRF_TOKEN, 'X-Requested-With': 'XMLHttpRequest' }
-    })
-    .then(r => {
-      row.classList.remove('kicking');
-      if (r.ok || r.status === 404) {   // 404: the session had already ended
-        row.classList.add('kicked');
-        updateCounts();
-      }
-    })
-    .catch(() => row.classList.remove('kicking'));
-  }
-
-  // everyone else in this list - never the admin's own row (Sign out ends that)
-  async function kickAll(btn) {
-    const table = btn.closest('.nr-card-body').querySelector('.session-table tbody');
-    const rows = [...table.querySelectorAll('tr:not(.kicked):not([data-self])')];
-    if (!rows.length) return;
-    if (!await nrConfirm({title: `End the sessions of ${rows.length} user${rows.length !== 1 ? 's' : ''}?`,
-                          message: 'They are signed out everywhere.', danger: true,
-                          confirmLabel: 'End sessions'})) return;
-    rows.forEach(row => kick(row.id.replace('row-', '')));
-  }
-
-  function updateCounts() {
-    document.querySelectorAll('.session-count').forEach(el => {
-      const table = el.closest('.nr-card-body').querySelector('.session-table tbody');
-      if (!table) return;
-      const visible = table.querySelectorAll('tr:not(.kicked)').length;
-      el.textContent = visible;
-    });
-  }
-</script>
+<script src="{{ asset('js/live-sessions.js') }}"></script>
 {% endblock %}
