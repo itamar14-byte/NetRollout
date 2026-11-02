@@ -31,7 +31,7 @@ def boxes() -> list[tuple[str, int, str, str]]:
 	""":returns: (template, line, the tag, the text before it) for every
 	 check box written as HTML"""
 	found = []
-	for path in sorted(TEMPLATES.glob("*.html")):
+	for path in page_sources(".js"):
 		text = path.read_text(encoding="utf-8")
 		for m in BOX.finditer(text):
 			found.append((path.name, text.count("\n", 0, m.start()) + 1, m.group(0),
