@@ -1,0 +1,36 @@
+// The password rule for instant feedback - see templates/_password_rule_script.html, which loads it.
+function nrPasswordProblem(value, username, current) {
+    if (/[^\x20-\x7E]/.test(value)) return 'The password must contain only ASCII characters.';
+    if (value.length < 8) return 'The password must be at least 8 characters.';
+    const groups = [/[A-Za-z]/, /[0-9]/, /[^A-Za-z0-9]/].filter(re => re.test(value)).length;
+    if (groups < 2)
+        return 'The password must contain at least 2 of: letters, digits, special characters.';
+    if (username && value.toLowerCase().includes(username.toLowerCase()))
+        return "The password can't contain your username.";
+    if (current !== undefined && current !== '' && value === current)
+        return 'The new password must differ from the current one.';
+    return null;
+}
+
+// What more typing can't fix - shown at once, while the rest of the rule
+// waits until the field is left (a person may simply not be done yet)
+function nrPasswordUnfixable(value, username) {
+    if (/[^\x20-\x7E]/.test(value)) return 'The password must contain only ASCII characters.';
+    if (username && value.toLowerCase().includes(username.toLowerCase()))
+        return "The password can't contain your username.";
+    return null;
+}
+
+// Focus moving to the field's own show/hide button isn't leaving the field
+function nrLeftField(event) {
+    const to = event.relatedTarget;
+    return !(to && to.classList && to.classList.contains('toggle-password')
+             && to.dataset.target === event.target.id);
+}
+
+function nrShake(input) {
+    input.style.animation = 'none';
+    void input.offsetHeight;
+    input.style.animation = 'shake 0.4s ease';
+    input.addEventListener('animationend', () => { input.style.animation = ''; }, { once: true });
+}
