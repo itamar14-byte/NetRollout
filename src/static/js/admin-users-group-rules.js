@@ -42,7 +42,7 @@
         const roleSelect = `<select class="form-select form-select-sm gr-role ${g.role === 'admin' ? 'gr-role-admin' : 'gr-role-operator'}"
                   aria-label="Role for members of this group"
                   data-server="${nrEscape(server.id)}" data-group="${nrEscape(g.id)}"
-                  data-role="${nrEscape(g.role)}" data-label="${nrEscape(g.label)}" onchange="setGroupRole(this)">
+                  data-role="${nrEscape(g.role)}" data-label="${nrEscape(g.label)}" data-nr-change="setGroupRole">
             <option value="operator"${g.role === 'admin' ? '' : ' selected'}>Operator</option>
             <option value="admin"${g.role === 'admin' ? ' selected' : ''}>Admin</option>
           </select>`;
@@ -57,13 +57,13 @@
           </td>
           <td>
             <span class="gr-toggle ${toggleClass}" id="gr-toggle-${g.id}"
-                  onclick="toggleGroup('${server.id}', '${g.id}', this)">
+                  data-nr-click="toggleGroup" data-server-id="${server.id}" data-group-id="${g.id}">
               ${toggleLabel}
             </span>
           </td>
           <td>
             <button aria-label="Delete user" title="Delete user" class="btn btn-outline-danger btn-sm" style="font-size: 0.75rem; padding:0.15rem 0.5rem;"
-                    onclick="deleteGroup('${server.id}', '${g.id}')">
+                    data-nr-click="deleteGroup" data-server-id="${server.id}" data-group-id="${g.id}">
               <i class="bi bi-trash3"></i>
             </button>
           </td>
@@ -135,3 +135,10 @@
       }
     });
   }
+
+// What the group rules' elements name in data-nr-<event> (js/events.js)
+nrHandlers({
+    setGroupRole: el => { setGroupRole(el); },
+    toggleGroup: el => { toggleGroup(el.dataset.serverId, el.dataset.groupId, el); },
+    deleteGroup: el => { deleteGroup(el.dataset.serverId, el.dataset.groupId); },
+});
