@@ -16,3 +16,6 @@ deploy/** text eol=lf
 *.png      binary
 *.ico      binary
 *.bmp      binary
+
+# Third-party files served as published (their checksums: src/static/vendor/SHA256SUMS)
+src/static/vendor/** -text
