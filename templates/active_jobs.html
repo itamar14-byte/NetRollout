@@ -18,7 +18,7 @@
             <span id="refreshLabel">-</span>
         </div>
         {% if is_admin %}
-        <button id="allUsersToggle" class="job-action-btn" onclick="toggleAllUsers()"
+        <button id="allUsersToggle" class="job-action-btn" data-nr-click="toggleAllUsers"
                 style="border-color:#2a2a2a; color:var(--nr-text-muted);">
             <i class="bi bi-people me-1"></i>All Users
         </button>
@@ -125,12 +125,12 @@
             <div class="d-flex align-items-center justify-content-end gap-2">
                 <button class="job-action-btn btn-log"
                         data-job-id="{{ job.id }}"
-                        onclick="toggleLog(this)">
+                        data-nr-click="toggleLog">
                     <i class="bi bi-terminal me-1"></i>Log
                 </button>
                 <form method="POST" action="{{ url_for('rollout.cancel_rollout') }}"
                       style="display:inline;"
-                      onsubmit="event.preventDefault(); confirmCancel(this);">
+                      data-nr-submit="confirmCancel">
                     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <input type="hidden" name="job_id" value="{{ job.id }}">
                     <button type="submit" class="job-action-btn btn-cancel">
@@ -190,7 +190,7 @@
     <div id="split-view" style="display:none; padding: 0.75rem 1rem 0.5rem;">
 
         {# My Jobs section #}
-        <button type="button" class="section-divider open" aria-expanded="true" aria-controls="my-jobs-body" onclick="toggleSection(this, 'my-jobs-body')">
+        <button type="button" class="section-divider open" aria-expanded="true" aria-controls="my-jobs-body" data-nr-click="toggleSection" data-section="my-jobs-body">
             <i class="bi bi-chevron-down section-divider-chevron" aria-hidden="true"></i>
             <span class="section-divider-label">My Jobs</span>
             <span style="font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; color:var(--nr-text-muted);">
@@ -203,7 +203,7 @@
 
         {# Other Users section #}
         <button type="button" class="section-divider open" aria-expanded="true" aria-controls="other-jobs-body" style="margin-top:1rem;"
-             onclick="toggleSection(this, 'other-jobs-body')">
+             data-nr-click="toggleSection" data-section="other-jobs-body">
             <i class="bi bi-chevron-down section-divider-chevron" aria-hidden="true"></i>
             <span class="section-divider-label">Other Users</span>
             <span style="font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; color:var(--nr-text-muted);">

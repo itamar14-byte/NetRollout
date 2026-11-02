@@ -210,7 +210,7 @@
             // a rollback targets the devices it configured, fully or in part
             (data.counts.success || data.counts.partial
                 ? `<button type="button" class="btn btn-sm completion-rollback" ` +
-                  `data-job-id="${nrEscape(data.job_id)}" onclick="openRollback(this.dataset.jobId)">` +
+                  `data-job-id="${nrEscape(data.job_id)}" data-nr-click="openRollback">` +
                   `<i class="bi bi-arrow-counterclockwise me-1"></i>Rollback</button>`
                 : '') +
             // devices with commands in review or rejected: decided in Results
@@ -279,3 +279,11 @@
     }
 
 })();
+
+// What this page's elements name in data-nr-<event> (js/events.js)
+nrHandlers({
+    toggleAllUsers: () => { toggleAllUsers(); },
+    toggleLog: el => { toggleLog(el); },
+    confirmCancel: (el, e) => { e.preventDefault(); confirmCancel(el); },
+    toggleSection: el => { toggleSection(el, el.dataset.section); },
+});
