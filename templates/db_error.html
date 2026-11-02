@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Service Unavailable - NetRollout</title>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;500&display=swap" rel="stylesheet">
+    {# Its styles stay inline (not static/css): this page shows while Postgres is
+       down, and then a signed-in browser gets 503 for /static too - the request
+       hooks load the signed-in user (require_password_change) before serving it. #}
     <style>
         /* ── Readability tokens ──────────────────────────────────────────
            Every text tier passes WCAG AA (4.5:1) on all app surfaces
