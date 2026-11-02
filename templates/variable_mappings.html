@@ -187,7 +187,7 @@
                                                        transition:color 0.15s;"
                                                 data-nr-mouseenter="nrHover" data-nr-hover-style="color:#00bcd4"
                                                 data-nr-mouseleave="nrRest" data-nr-rest-style="color:var(--nr-text-muted)"
-                                                onclick="openMappingQuickProp()">
+                                                data-nr-click="openMappingQuickProp">
                                             <i class="bi bi-plus-circle me-1"></i>New property…
                                         </button>
                                     </div>
@@ -299,7 +299,7 @@
                                                        transition:color 0.15s;"
                                                 data-nr-mouseenter="nrHover" data-nr-hover-style="color:#00bcd4"
                                                 data-nr-mouseleave="nrRest" data-nr-rest-style="color:var(--nr-text-muted)"
-                                                onclick="openMappingQuickProp()">
+                                                data-nr-click="openMappingQuickProp">
                                             <i class="bi bi-plus-circle me-1"></i>New property…
                                         </button>
                                     </div>
@@ -378,7 +378,7 @@
             <div class="modal-footer" style="justify-content:space-between;">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-primary btn-sm" id="saveAssignBtn"
-                        onclick="saveAssignments()" disabled>
+                        data-nr-click="saveAssignments" disabled>
                     <i class="bi bi-check-lg me-1"></i>Save
                 </button>
             </div>
@@ -396,7 +396,7 @@
                        title="New Property") %}
             <div class="modal-footer d-flex justify-content-end gap-2">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary btn-sm" onclick="submitMappingQuickProp()">
+                <button type="button" class="btn btn-primary btn-sm" data-nr-click="submitMappingQuickProp">
                     <i class="bi bi-plus me-1"></i>Create
                 </button>
             </div>

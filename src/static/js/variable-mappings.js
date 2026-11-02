@@ -363,3 +363,10 @@ function attrOption(name, icon, isList) {
     opt.append(check);
     return opt;
 }
+
+// What this page's elements name in data-nr-<event> (js/events.js)
+nrHandlers({
+    openMappingQuickProp: () => { openMappingQuickProp(); },
+    saveAssignments: () => { saveAssignments(); },
+    submitMappingQuickProp: () => { submitMappingQuickProp(); },
+});
