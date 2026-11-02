@@ -1,0 +1,257 @@
+/* Active Jobs - see templates/active_jobs.html (data-has-jobs, data-show-others). */
+/* Completion card under a finished job's log */
+.completion-card { margin:10px 12px 12px; padding:10px 12px; border-radius:8px;
+                   border:1px solid rgba(0,188,212,0.35); background:rgba(0,188,212,0.05); }
+.completion-card.needs-action { border-color:rgba(255,183,77,0.55); }
+.completion-action { margin-top:10px; padding-top:8px; border-top:1px solid rgba(255,183,77,0.3); }
+.completion-action-title { color:#ffb74d; font-weight:600; font-size:0.85rem; margin-bottom:4px; }
+.completion-action-item { margin-top:6px; font-size:0.8rem; color:#ddd; }
+.completion-action-item div { margin-left:12px; }
+.completion-rollback { background:rgba(255,224,130,0.06); border:1px solid rgba(255,224,130,0.3); color:#ffe082; }
+.completion-rollback:hover { background:rgba(255,224,130,0.12); border-color:rgba(255,224,130,0.5); color:#ffe082; }
+.completion-action-device { font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#ffe0b2; }
+
+
+/* ── New-job glow animation (one-shot) ── */
+@keyframes jobLand {
+    0%   { box-shadow: inset 0 0 0 1px rgba(0,188,212,0.0), background-color: transparent; }
+    15%  { box-shadow: inset 0 0 0 1px rgba(0,188,212,0.5); background-color: rgba(0,188,212,0.07); }
+    100% { box-shadow: inset 0 0 0 1px rgba(0,188,212,0.0); background-color: transparent; }
+}
+.job-new { animation: jobLand 2s ease forwards; }
+
+/* ── Pulse for active status dot ── */
+@keyframes pulse-green {
+    0%   { box-shadow: 0 0 0 0 rgba(76,175,80,0.7); }
+    70%  { box-shadow: 0 0 0 6px rgba(76,175,80,0); }
+    100% { box-shadow: 0 0 0 0 rgba(76,175,80,0); }
+}
+@keyframes pulse-cyan {
+    0%   { box-shadow: 0 0 0 0 rgba(0,188,212,0.6); }
+    70%  { box-shadow: 0 0 0 6px rgba(0,188,212,0); }
+    100% { box-shadow: 0 0 0 0 rgba(0,188,212,0); }
+}
+@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+/* ── Status dot ── */
+.status-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.status-dot.active  { background:#4caf50; animation: pulse-green 1.6s ease-out infinite; }
+.status-dot.pending { background:#00bcd4; animation: pulse-cyan  1.8s ease-out infinite; }
+.status-dot.idle    { background:#2a2a2a; border:1px solid #333; }
+
+/* ── Status pill ── */
+.status-pill {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    padding: 0.15rem 0.5rem;
+    border-radius: 3px;
+}
+.status-pill.active  { background:rgba(76,175,80,0.1);  color:#a5d6a7; border:1px solid rgba(76,175,80,0.2); }
+.status-pill.pending { background:rgba(0,188,212,0.08); color:#00bcd4; border:1px solid rgba(0,188,212,0.2); }
+/* review: verified, a person must decide something; not verified: applied,
+   nothing judged it */
+.status-pill.review       { background: rgba(255,167,38,0.1);  color: #ffcc80; border: 1px solid rgba(255,167,38,0.3); }
+.status-pill.not-verified { background: rgba(144,164,174,0.1); color: #b0bec5; border: 1px solid rgba(144,164,174,0.25); }
+/* a queued job says why it waits: a sentence, not a one-word state */
+.status-pill.queued  { text-transform:none; letter-spacing:0.3px; white-space:nowrap; }
+
+/* ── Term text ── */
+.term {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--nr-text-muted);
+}
+.term.bright { color: #e0e0e0; }
+.term.cyan   { color: #00bcd4; }
+.term.green  { color: #a5d6a7; }
+.term.muted  { color: var(--nr-text-muted); }
+
+/* ── Jobs table ── */
+.jobs-table { border-collapse: separate; border-spacing: 0; width: 100%; }
+.jobs-table thead th {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--nr-text-muted);
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid #1e1e1e;
+    background: #111;
+    white-space: nowrap;
+}
+.jobs-table tbody tr.job-row { transition: background 0.15s; }
+.jobs-table tbody tr.job-row:hover { background: rgba(255,255,255,0.015); }
+.jobs-table tbody td {
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid #161616;
+    vertical-align: middle;
+}
+.jobs-table tbody tr:last-child td { border-bottom: none; }
+
+/* ── Action buttons ── */
+.job-action-btn {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.75rem;
+    padding: 0.25rem 0.65rem;
+    border-radius: 5px;
+    border: 1px solid #222;
+    background: transparent;
+    color: var(--nr-text-muted);
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+}
+.job-action-btn:hover          { border-color:#444; color:#ccc; background:rgba(255,255,255,0.03); }
+.job-action-btn.btn-log        { }
+.job-action-btn.btn-log.active { border-color:rgba(0,188,212,0.35); color:#00bcd4; background:rgba(0,188,212,0.06); }
+.job-action-btn.btn-cancel     { }
+.job-action-btn.btn-cancel:hover { border-color:rgba(239,83,80,0.4); color:#ef9a9a; background:rgba(239,83,80,0.05); }
+.job-action-btn:disabled,
+.job-action-btn:disabled:hover { opacity:0.35; border-color:#222; color:var(--nr-text-muted);
+                                 background:transparent; pointer-events:none; }
+
+/* ── Log panel (inline expand) ── */
+.log-panel {
+    display: none;
+    background: #0a0a0a;
+    border-top: 1px solid #1a1a1a;
+}
+.log-panel.open { display: table-row; }
+
+.log-panel-inner {
+    padding: 0;
+    background: #0a0a0a;
+}
+
+.log-terminal {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.76rem;
+    line-height: 1.65;
+    color: var(--nr-text-muted);
+    white-space: pre-wrap;
+    overflow-y: auto;
+    max-height: 260px;
+    padding: 0.85rem 1.25rem;
+}
+/* the log file, when the job ended before its live log opened */
+.log-file-note { color:var(--nr-text-faint); font-style:italic; margin-bottom:4px; }
+.log-file-time { color:var(--nr-text-faint); margin-right:10px; }
+.log-file-action { color:#ef5350; }
+.log-terminal::-webkit-scrollbar { width: 4px; }
+.log-terminal::-webkit-scrollbar-thumb { background: #1e1e1e; border-radius: 2px; }
+
+.log-terminal-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 1rem;
+    background: #0d0d0d;
+    border-bottom: 1px solid #141414;
+}
+.log-terminal-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: #1e1e1e;
+}
+
+/* ── Stats bar ── */
+.stat-chip {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0.75rem 1.5rem;
+    border-right: 1px solid #1e1e1e;
+}
+.stat-chip:last-child { border-right: none; }
+/* Phones: the four figures two by two */
+@media (max-width: 575.98px) {
+    .stat-bar { flex-wrap: wrap; }
+    .stat-bar .stat-chip { flex: 1 1 50%; padding: 0.6rem 0.5rem; border: none !important; margin: 0 !important; }
+}
+.stat-val {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.4rem;
+    font-weight: 700;
+    color: #e0e0e0;
+    line-height: 1;
+}
+.stat-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--nr-text-muted);
+    margin-top: 0.3rem;
+}
+
+/* ── Empty state ── */
+.empty-wrap {
+    padding: 4rem 2rem;
+    text-align: center;
+}
+.empty-wrap > i { font-size: 2.5rem; color: var(--nr-text-faint); display: block; margin-bottom: 1rem; }
+.empty-wrap p { color: var(--nr-text-muted); font-family: 'JetBrains Mono', monospace; font-size: 0.78rem; margin-bottom: 1.25rem; }
+
+/* ── Owner badge ── */
+.owner-badge {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6875rem;
+    color: #888;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid #2a2a2a;
+    border-radius: 3px;
+    padding: 1px 6px;
+    letter-spacing: 0.03em;
+}
+
+/* ── Section divider ── */
+.section-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.5rem 0 0.75rem;
+    cursor: pointer;
+    user-select: none;
+    /* a <button>: what the keyboard reaches; drawn as the divider */
+    width: 100%; background: none; border: 0; color: inherit; font: inherit; text-align: left;
+}
+.section-divider-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--nr-text-muted);
+}
+.section-divider-chevron {
+    font-size: 0.75rem;
+    color: var(--nr-text-muted);
+    transition: transform 0.2s;
+}
+.section-divider.open .section-divider-chevron { transform: rotate(180deg); }
+
+/* ── Auto-refresh indicator ── */
+.refresh-indicator {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6875rem;
+    color: var(--nr-text-muted);
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+.refresh-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: #2a2a2a;
+}
+.refresh-dot.ticking { background: #00bcd4; animation: blink 1s step-end infinite; }
+
