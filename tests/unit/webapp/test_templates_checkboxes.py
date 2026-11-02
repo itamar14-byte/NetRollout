@@ -95,9 +95,9 @@ def test_every_check_box_a_script_builds_has_netrollouts_look(name, line, var, a
 def test_the_shared_check_box_is_in_the_theme():
 	"""The theme every skeleton includes defines .nr-check - its box, the tick
 	when checked, the dash when some are, disabled - and the danger variant."""
-	theme = (TEMPLATES / "_theme_core_css.html").read_text(encoding="utf-8")
+	theme = (STATIC / "css" / "theme-core.css").read_text(encoding="utf-8")
 	for rule in (".nr-check {", ".nr-check:checked", ".nr-check:checked::after",
 	             ".nr-check:indeterminate", ".nr-check:disabled", ".nr-check-danger:checked"):
 		assert rule in theme, rule
 	for skeleton in ("base.html", "operator_base.html", "admin.html"):
-		assert "_theme_core_css.html" in (TEMPLATES / skeleton).read_text(encoding="utf-8"), skeleton
+		assert "asset('css/theme-core.css')" in (TEMPLATES / skeleton).read_text(encoding="utf-8"), skeleton

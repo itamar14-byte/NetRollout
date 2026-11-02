@@ -126,11 +126,11 @@ def test_a_window_closes_as_it_opens():
 	closing (Escape, a click outside) was gone before the slide showed. The
 	window's fade takes the slide's 0.3 s, in the styles every skeleton loads;
 	the backdrop keeps Bootstrap's (opening waits for it)."""
-	core = (TEMPLATES / "_theme_core_css.html").read_text(encoding="utf-8")
+	core = (STATIC / "css" / "theme-core.css").read_text(encoding="utf-8")
 	assert ".modal.fade { transition: opacity 0.3s ease-out; }" in core
 	assert ".modal-backdrop" not in core.split(".modal.fade {")[1].split("}")[0]
 	for skeleton in ("operator_base.html", "admin.html", "base.html"):
-		assert "_theme_core_css.html" in (TEMPLATES / skeleton).read_text(encoding="utf-8")
+		assert "asset('css/theme-core.css')" in (TEMPLATES / skeleton).read_text(encoding="utf-8")
 
 
 def test_the_inventory_tooltip_shows_a_hostnames_address():

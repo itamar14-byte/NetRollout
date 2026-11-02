@@ -1,7 +1,7 @@
-{# The theme rules every skeleton (base, operator_base, admin) writes the
+/* The theme rules every skeleton (base, operator_base, admin) writes the
    same: the colour tokens, focus, headings, dropdowns, cards, forms,
-   buttons, tables, alerts, modals, badges, scrollbars. Included first in
-   each skeleton's <style>: what a skeleton writes after it overrides it. #}
+   buttons, tables, alerts, modals, badges, scrollbars. Linked first by
+   each skeleton: what a skeleton writes after it overrides it. */
 
         /* ── Readability tokens ──────────────────────────────────────────
            Every text tier passes WCAG AA (4.5:1) on all app surfaces
