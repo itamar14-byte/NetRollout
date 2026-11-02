@@ -1,9 +1,11 @@
 // jQuery QueryBuilder 2.6.0's default templates, compiled ahead of time by its
 // own doT 1.1.1 (doT.template(QueryBuilder.templates[name]).toString(), generated
-// in Chrome from the vendored query-builder.standalone.min.js). Loaded right
-// after the library: QueryBuilder compiles a template only while it's a string
-// (with new Function, which the pages' Content-Security-Policy forbids), so it
-// uses these as they are. Same licence as the library (MIT, LICENSE).
+// in Chrome from the package's query-builder.standalone.min.js, which bundles
+// doT). Loaded right after the library: QueryBuilder compiles a template only
+// while it's a string (with doT's new Function, which the pages'
+// Content-Security-Policy forbids), so it uses these as they are - and the
+// pages load the build without doT (query-builder.min.js), whose loading
+// already evaluates a string. Same licence as the library (MIT, LICENSE).
 (function (QueryBuilder) {
     QueryBuilder.templates.group = function anonymous(it
 ) {
