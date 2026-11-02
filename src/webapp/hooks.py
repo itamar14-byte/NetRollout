@@ -3,7 +3,9 @@ limits and Prometheus metrics; the session lifetime and the forced password
 change, checked before every request, and the request's side of the
 sessions (the signed-in user's row, their clocks; the store is
 users.SessionStore, current_app.sessions); the pages for an unavailable
-service and an encryption key that doesn't match."""
+service and an encryption key that doesn't match; the Content-Security-Policy
+every answer carries."""
+import re
 import sys
 import time
 import uuid
@@ -31,6 +33,7 @@ from src.encryption import ENV_VAR, KEY_FILE, InvalidEncryptionKeyError, \
 	key_source
 from src.webapp.app import NetRolloutApp, current_app
 from src.webapp.http import Caller, err, is_background, viewer
+from src.webapp.startup import CSP_REPORT_PATH
 
 
 # ── The request's session ──
@@ -82,7 +85,7 @@ conn_limit = Limiter(get_remote_address, default_limits=[],
 csrf = CSRFProtect()
 # Reachable while a password change is pending (must_change_password)
 PASSWORD_CHANGE_ALLOWED = {"auth.change_password", "auth.logout", "static",
-                           "system.instance", "system.health",
+                           "system.instance", "system.health", "system.csp_report",
                            "system.grafana_auth",   # answers 403 itself
                            "auth.session_state"}
 
@@ -93,6 +96,45 @@ def register_extensions(app: Flask) -> None:
 	login_mng.init_app(app)
 	conn_limit.init_app(app)
 	csrf.init_app(app)
+
+
+# ── The Content-Security-Policy ──
+
+# The pages' scripts are files of NetRollout's own (src/static: no inline
+# script, no on...= handler, no eval - QueryBuilder's templates come compiled);
+# styles may be inline (the pages' style= attributes); images also data: (the
+# 2FA QR code, CSS icons); nothing from another site. The port change's probe
+# (System Settings) asks this host on the new port: connect-src names it.
+# frame-ancestors is nginx's X-Frame-Options SAMEORIGIN, for dev without nginx
+# too. Grafana (/grafana/) isn't Flask's and doesn't get it.
+CSP_HEADER = "Content-Security-Policy"
+CSP_POLICY = ("default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+              "img-src 'self' data:; font-src 'self'; connect-src 'self'{trial}; "
+              "object-src 'none'; base-uri 'self'; frame-ancestors 'self'; form-action 'self'; "
+              "report-uri " + CSP_REPORT_PATH)
+# a name or an IPv4 address (CSP has no syntax for an IPv6 one)
+_CSP_HOST = re.compile(r"^[A-Za-z0-9.-]+$")
+
+
+def content_security_policy(host: str) -> str:
+	"""The policy for a page asked for at host.
+
+	:param host: the request's Host (name[:port]); its name is allowed on
+	 any port for connect-src - the port change's probe - when CSP can say it
+	:returns: the header's value"""
+	name = host.rsplit(":", 1)[0] if not host.startswith("[") else ""
+	trial = f" https://{name}:*" if _CSP_HOST.match(name) else ""
+	return CSP_POLICY.format(trial=trial)
+
+
+def register_security_headers(app: Flask, header: str = CSP_HEADER) -> None:
+	"""Every answer carries the Content-Security-Policy.
+
+	:param header: Content-Security-Policy, or -Report-Only to only report"""
+	@app.after_request
+	def add_content_security_policy(response: Response) -> Response:
+		response.headers.setdefault(header, content_security_policy(request.host))
+		return response
 
 
 def register_auth(app: NetRolloutApp) -> None:

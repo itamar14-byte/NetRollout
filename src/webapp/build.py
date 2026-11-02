@@ -40,7 +40,8 @@ from src.webapp.blueprints.rollout import bp as rollout_bp
 from src.webapp.blueprints.security import bp as security_bp
 from src.webapp.blueprints.system import bp as system_bp
 from src.webapp.db_move import DatabaseMove
-from src.webapp.hooks import register_extensions, register_handlers, register_auth
+from src.webapp.hooks import (register_extensions, register_handlers, register_auth,
+                               register_security_headers)
 from src.webapp.http import WebServices
 from src.webapp.lifecycle import Maintenance, Shutdown, register_maintenance
 from src.webapp.startup import new_instance_token
@@ -274,6 +275,7 @@ def launch_app(backend: BackendServices | None = None) -> NetRolloutApp:
 	register_server_state(app)
 
 	register_handlers(app, backend)
+	register_security_headers(app, "Content-Security-Policy-Report-Only")
 
 	app.session_interface = _SafeRedisSessionInterface(
 		app,

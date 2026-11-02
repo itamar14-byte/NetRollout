@@ -622,7 +622,8 @@ ABSOLUTE_SESSION_HOURS = 12
 SIGNED_IN_AT = "nr_signed_in_at"
 LAST_ACTIVE = "nr_last_active"
 # no session is checked or written for these (the request hook in hooks.py)
-NO_SESSION_PATHS = ("/static/", "/_netrollout/instance", "/_netrollout/health")
+NO_SESSION_PATHS = ("/static/", "/_netrollout/instance", "/_netrollout/health",
+                    "/_netrollout/csp-report")    # a browser's report is no one's activity
 # the idle limit is re-read from System Settings at most this often (it's
 # asked on every request, Grafana's included)
 IDLE_LIMIT_CACHE_SECONDS = 30

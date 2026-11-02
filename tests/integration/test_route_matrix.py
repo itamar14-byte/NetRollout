@@ -21,6 +21,7 @@ PUBLIC_ENDPOINTS = {
 	"prometheus_metrics",
 	"system.instance",   # startup proxy check: a random per-run token only
 	"system.health",     # Docker / installer / status: up-down, counts, version
+	"system.csp_report", # a browser reports what the page's policy blocked: logged only
 }
 # Not public, but refused with a bare status instead of the login redirect:
 # their caller isn't a browser

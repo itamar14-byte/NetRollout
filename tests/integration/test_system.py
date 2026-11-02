@@ -1,4 +1,8 @@
-"""The instance route behind the startup reverse-proxy check."""
+"""The instance route behind the startup reverse-proxy check, the version and
+source on every page, Grafana's sign-in check, the Content-Security-Policy
+and its reports."""
+import json
+
 import pytest
 
 from src.db.tables import User
@@ -93,3 +97,52 @@ def test_grafana_follows_role_and_status_changes(client_for, make_user,
 		user = s.get(User, admin.id)
 		user.role, user.is_active = "admin", False           # deactivated
 	assert browser.get(GRAFANA_AUTH).status_code == 401
+
+
+# ── The Content-Security-Policy ──────────────────────────────────────────────
+
+CSP_HEADER = "Content-Security-Policy-Report-Only"
+CSP_REPORT = {"csp-report": {"document-uri": "https://nr.corp/inventory", "violated-directive": "script-src-elem",
+                             "blocked-uri": "inline", "source-file": "https://nr.corp/inventory", "line-number": 12}}
+
+
+@pytest.mark.parametrize("path,role", [
+	("/", None),                  # base.html
+	("/dashboard", "operator"),   # operator_base.html
+	("/admin/users", "admin"),    # admin.html
+])
+def test_every_page_carries_the_content_security_policy(client_for, make_user, path, role):
+	"""Each skeleton's pages are answered with the policy (Flask's own header,
+	so also without nginx): scripts from NetRollout only, reports to
+	/_netrollout/csp-report."""
+	client = client_for(make_user(role=role) if role else None)
+	resp = client.get(path)
+	policy = resp.headers.get(CSP_HEADER, "")
+	assert resp.status_code == 200 and "script-src 'self';" in policy
+	assert "report-uri /_netrollout/csp-report" in policy
+
+
+def test_a_csp_report_is_logged(client_for, capsys):
+	"""A browser's report (application/csp-report, no CSRF token, no session)
+	gets 204 and one line in the log naming what was blocked where; no
+	session cookie is written for it."""
+	resp = client_for().post("/_netrollout/csp-report", data=json.dumps(CSP_REPORT),
+	                         content_type="application/csp-report")
+	assert resp.status_code == 204 and "Set-Cookie" not in resp.headers
+	line = [l for l in capsys.readouterr().out.splitlines() if "Content-Security-Policy blocked" in l]
+	assert len(line) == 1
+	assert "violated-directive='script-src-elem'" in line[0] and "blocked-uri='inline'" in line[0]
+	assert "document-uri='https://nr.corp/inventory'" in line[0] and "line-number='12'" in line[0]
+
+
+def test_a_csp_report_too_big_or_not_a_report_is_refused(client_for, capsys):
+	"""Over 8 KB: 413, unread; not JSON or without csp-report: 400. Nothing is logged."""
+	client = client_for()
+	big = {"csp-report": {"blocked-uri": "x" * 9000}}
+	assert client.post("/_netrollout/csp-report", data=json.dumps(big),
+	                   content_type="application/csp-report").status_code == 413
+	assert client.post("/_netrollout/csp-report", data="not json",
+	                   content_type="application/csp-report").status_code == 400
+	assert client.post("/_netrollout/csp-report", data=json.dumps({"other": 1}),
+	                   content_type="application/json").status_code == 400
+	assert "Content-Security-Policy blocked" not in capsys.readouterr().out

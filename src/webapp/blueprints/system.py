@@ -1,17 +1,20 @@
 """What isn't a page: the health check, the instance token (the startup
-proxy check) and Grafana's sign-in check for nginx. No sign-in needed; all
-still answer during maintenance."""
+proxy check), Grafana's sign-in check for nginx and the browsers' reports of
+what the Content-Security-Policy blocked. No sign-in needed; all still answer
+during maintenance."""
+import json
 from typing import Any
 
-from flask import Blueprint, Response, jsonify
+from flask import Blueprint, Response, jsonify, request
 from flask.typing import ResponseReturnValue
 from flask_login import current_user
 
 from src.runtime import VERSION
 from src.webapp.app import current_app
+from src.webapp.hooks import conn_limit, csrf
 from src.webapp.http import viewer
 from src.webapp.lifecycle import during_maintenance
-from src.webapp.startup import GRAFANA_AUTH_PATH, HEALTH_PATH, INSTANCE_PATH
+from src.webapp.startup import CSP_REPORT_PATH, GRAFANA_AUTH_PATH, HEALTH_PATH, INSTANCE_PATH
 
 bp = Blueprint("system", __name__)
 
@@ -63,6 +66,31 @@ def health() -> ResponseReturnValue:
 	response = jsonify(body)
 	response.headers["Cache-Control"] = "no-store"
 	return response, 200 if up else 503
+
+
+# a report is a few hundred bytes; anything bigger isn't read
+CSP_REPORT_MAX_BYTES = 8192
+CSP_REPORT_FIELDS = ("violated-directive", "blocked-uri", "document-uri", "source-file", "line-number")
+
+
+@bp.route(CSP_REPORT_PATH, methods=["POST"])
+@csrf.exempt                          # the browser sends it, without a token
+@conn_limit.limit("60 per minute")
+@during_maintenance                   # writes only a log line
+def csp_report() -> Response:
+	"""A browser reports what the page's Content-Security-Policy blocked
+	(report-uri: application/csp-report JSON). One line in the app's log -
+	something on a page that doesn't work. 413 when too big, 400 when not a
+	report; nothing else is done with it."""
+	if (request.content_length or 0) > CSP_REPORT_MAX_BYTES:
+		return Response(status=413)
+	try:
+		report = json.loads(request.get_data(cache=False)[:CSP_REPORT_MAX_BYTES])["csp-report"]
+		fields = [f"{k}={str(report.get(k, ''))[:200]!r}" for k in CSP_REPORT_FIELDS]
+	except (ValueError, KeyError, TypeError, AttributeError):
+		return Response(status=400)
+	print("[NetRollout] Content-Security-Policy blocked: " + " ".join(fields), flush=True)
+	return Response(status=204)
 
 
 def _maintenance() -> dict[str, Any] | None:
