@@ -1,0 +1,28 @@
+// jQuery QueryBuilder 2.6.0's default templates, compiled ahead of time by its
+// own doT 1.1.1 (doT.template(QueryBuilder.templates[name]).toString(), generated
+// in Chrome from the vendored query-builder.standalone.min.js). Loaded right
+// after the library: QueryBuilder compiles a template only while it's a string
+// (with new Function, which the pages' Content-Security-Policy forbids), so it
+// uses these as they are. Same licence as the library (MIT, LICENSE).
+(function (QueryBuilder) {
+    QueryBuilder.templates.group = function anonymous(it
+) {
+var out='<div id="'+( it.group_id )+'" class="rules-group-container">   <div class="rules-group-header">     <div class="btn-group pull-right group-actions">       <button type="button" class="btn btn-xs btn-success" data-add="rule">         <i class="'+( it.icons.add_rule )+'"></i> '+( it.translate("add_rule") )+'       </button>       ';if(it.settings.allow_groups===-1 || it.settings.allow_groups>=it.level){out+='         <button type="button" class="btn btn-xs btn-success" data-add="group">           <i class="'+( it.icons.add_group )+'"></i> '+( it.translate("add_group") )+'         </button>       ';}out+='       ';if(it.level>1){out+='         <button type="button" class="btn btn-xs btn-danger" data-delete="group">           <i class="'+( it.icons.remove_group )+'"></i> '+( it.translate("delete_group") )+'         </button>       ';}out+='     </div>     <div class="btn-group group-conditions">       ';var arr1=it.conditions;if(arr1){var condition,i1=-1,l1=arr1.length-1;while(i1<l1){condition=arr1[i1+=1];out+='         <label class="btn btn-xs btn-primary">           <input type="radio" name="'+( it.group_id )+'_cond" value="'+( condition )+'"> '+( it.translate("conditions", condition) )+'         </label>       ';} } out+='     </div>     ';if(it.settings.display_errors){out+='       <div class="error-container"><i class="'+( it.icons.error )+'"></i></div>     ';}out+='   </div>   <div class=rules-group-body>     <div class=rules-list></div>   </div> </div>';return out;
+};
+    QueryBuilder.templates.rule = function anonymous(it
+) {
+var out='<div id="'+( it.rule_id )+'" class="rule-container">   <div class="rule-header">     <div class="btn-group pull-right rule-actions">       <button type="button" class="btn btn-xs btn-danger" data-delete="rule">         <i class="'+( it.icons.remove_rule )+'"></i> '+( it.translate("delete_rule") )+'       </button>     </div>   </div>   ';if(it.settings.display_errors){out+='     <div class="error-container"><i class="'+( it.icons.error )+'"></i></div>   ';}out+='   <div class="rule-filter-container"></div>   <div class="rule-operator-container"></div>   <div class="rule-value-container"></div> </div>';return out;
+};
+    QueryBuilder.templates.filterSelect = function anonymous(it
+) {
+var out=''; var optgroup = null; out+=' <select class="form-control" name="'+( it.rule.id )+'_filter">   ';if(it.settings.display_empty_filter){out+='     <option value="-1">'+( it.settings.select_placeholder )+'</option>   ';}out+='   ';var arr1=it.filters;if(arr1){var filter,i1=-1,l1=arr1.length-1;while(i1<l1){filter=arr1[i1+=1];out+='     ';if(optgroup !== filter.optgroup){out+='       ';if(optgroup !== null){out+='</optgroup>';}out+='       ';if((optgroup = filter.optgroup) !== null){out+='         <optgroup label="'+( it.translate(it.settings.optgroups[optgroup]) )+'">       ';}out+='     ';}out+='     <option value="'+( filter.id )+'" ';if(filter.icon){out+='data-icon="'+( filter.icon)+'"';}out+='>'+( it.translate(filter.label) )+'</option>   ';} } out+='   ';if(optgroup !== null){out+='</optgroup>';}out+=' </select>';return out;
+};
+    QueryBuilder.templates.operatorSelect = function anonymous(it
+) {
+var out='';if(it.operators.length === 1){out+=' <span> '+( it.translate("operators", it.operators[0].type) )+' </span> ';}out+=' '; var optgroup = null; out+=' <select class="form-control ';if(it.operators.length === 1){out+='hide';}out+='" name="'+( it.rule.id )+'_operator">   ';var arr1=it.operators;if(arr1){var operator,i1=-1,l1=arr1.length-1;while(i1<l1){operator=arr1[i1+=1];out+='     ';if(optgroup !== operator.optgroup){out+='       ';if(optgroup !== null){out+='</optgroup>';}out+='       ';if((optgroup = operator.optgroup) !== null){out+='         <optgroup label="'+( it.translate(it.settings.optgroups[optgroup]) )+'">       ';}out+='     ';}out+='     <option value="'+( operator.type )+'" ';if(operator.icon){out+='data-icon="'+( operator.icon)+'"';}out+='>'+( it.translate("operators", operator.type) )+'</option>   ';} } out+='   ';if(optgroup !== null){out+='</optgroup>';}out+=' </select>';return out;
+};
+    QueryBuilder.templates.ruleValueSelect = function anonymous(it
+) {
+var out=''; var optgroup = null; out+=' <select class="form-control" name="'+( it.name )+'" ';if(it.rule.filter.multiple){out+='multiple';}out+='>   ';if(it.rule.filter.placeholder){out+='     <option value="'+( it.rule.filter.placeholder_value )+'" disabled selected>'+( it.rule.filter.placeholder )+'</option>   ';}out+='   ';var arr1=it.rule.filter.values;if(arr1){var entry,i1=-1,l1=arr1.length-1;while(i1<l1){entry=arr1[i1+=1];out+='     ';if(optgroup !== entry.optgroup){out+='       ';if(optgroup !== null){out+='</optgroup>';}out+='       ';if((optgroup = entry.optgroup) !== null){out+='         <optgroup label="'+( it.translate(it.settings.optgroups[optgroup]) )+'">       ';}out+='     ';}out+='     <option value="'+( entry.value )+'">'+( entry.label )+'</option>   ';} } out+='   ';if(optgroup !== null){out+='</optgroup>';}out+=' </select>';return out;
+};
+})($.fn.queryBuilder.constructor);
