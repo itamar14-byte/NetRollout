@@ -47,26 +47,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-<script>
-// Suppress browser validation tooltips - shake invalid fields on submit instead
-document.addEventListener('DOMContentLoaded', () => {
-    document.querySelectorAll('form[novalidate]').forEach(form => {
-        form.addEventListener('submit', e => {
-            if (!form.checkValidity()) {
-                e.preventDefault();
-                form.querySelectorAll(':invalid').forEach(field => {
-                    field.classList.add('nr-submitted');
-                    field.style.animation = 'none';
-                    void field.offsetHeight;
-                    field.style.animation = 'shake 0.4s ease';
-                    field.addEventListener('animationend',
-                        () => { field.style.animation = ''; }, { once: true });
-                });
-            }
-        });
-    });
-});
-</script>
+<script src="{{ asset('js/base.js') }}"></script>
 {% include '_password_eye.html' %}
 {% include '_idle_timeout.html' %}
 </body>
