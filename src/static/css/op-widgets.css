@@ -1,7 +1,7 @@
-{# The operator pages' shared widgets - their styles: the toggle switch, the
+/* The operator pages' shared widgets - their styles: the toggle switch, the
    global-device badge, NrSelect, the icon picker, the reachability
-   indicator, the assign board. Included in operator_base.html's <style>,
-   before the pages' own (extra_style). #}
+   indicator, the assign board. Linked by operator_base.html,
+   before the pages' own. */
         /* ── Toggle switch (shared) ── */
         .nr-toggle {
             position: relative;
