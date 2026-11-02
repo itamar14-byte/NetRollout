@@ -208,7 +208,7 @@
 {% endblock %}
 
 {% block extra_script %}
-<script src="https://cdn.jsdelivr.net/npm/jQuery-QueryBuilder@2.6.0/dist/js/query-builder.standalone.min.js"></script>
+<script src="{{ asset('vendor/jquery-querybuilder/2.6.0/query-builder.standalone.min.js') }}"></script>
 
 <link rel="stylesheet" href="{{ asset('css/querybuilder.css') }}">
 <link rel="stylesheet" href="{{ asset('css/querybuilder-analytics.css') }}">
