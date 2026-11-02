@@ -1,0 +1,90 @@
+/* Audit Log - see templates/admin_audit.html. */
+  /* Sticky header */
+  #auditTable thead th {
+    background: #141414;
+    border-bottom: 1px solid #222;
+    box-shadow: 0 1px 0 #222;
+  }
+
+  /* Action namespace badges */
+  .action-ns {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-right: 3px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .action-ns--auth     { background: rgba(100,180,255,0.1); color:#64b4ff; border:1px solid rgba(100,180,255,0.2); }
+  .action-ns--rollout  { background: rgba(0,188,212,0.1);  color:#00bcd4; border:1px solid rgba(0,188,212,0.2); }
+  .action-ns--inventory{ background: rgba(160,160,160,0.08); color:var(--nr-text-muted); border:1px solid #2a2a2a; }
+  .action-ns--security_profile { background: rgba(255,224,130,0.1); color:#ffe082; border:1px solid rgba(255,224,130,0.2); }
+  .action-ns--mapping  { background: rgba(179,157,219,0.1); color:#b39ddb; border:1px solid rgba(179,157,219,0.2); }
+  .action-ns--user     { background: rgba(255,204,128,0.1); color:#ffcc80; border:1px solid rgba(255,204,128,0.2); }
+
+  .action-verb {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.74rem;
+    color: var(--nr-text-muted);
+  }
+  .action-verb--delete, .action-verb--cancel { color: #ef9a9a; }
+  .action-verb--create, .action-verb--start  { color: #a5d6a7; }
+  .action-verb--login, .action-verb--logout  { color: #90caf9; }
+  .action-verb--rollback                     { color: #ffe082; }
+
+  /* Status pills */
+  .status-pill {
+    display: inline-block;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    padding: 2px 7px;
+    border-radius: 3px;
+    letter-spacing: 1px;
+  }
+  .status-pill--ok   { background: rgba(165,214,167,0.12); color:#a5d6a7; border:1px solid rgba(165,214,167,0.2); }
+  .status-pill--fail { background: rgba(239,83,80,0.12);   color:#ef9a9a; border:1px solid rgba(239,83,80,0.2); }
+
+  /* Gear button */
+  .gear-cell { text-align:center; vertical-align:middle; padding:0 4px; }
+  .gear-btn {
+    background: none;
+    border: none;
+    color: transparent;
+    font-size: 0.9rem;
+    cursor: pointer;
+    padding: 2px 4px;
+    border-radius: 4px;
+    transition: color 0.15s, background 0.15s;
+    line-height: 1;
+  }
+  tr.audit-row:hover .gear-btn { color: var(--nr-text-muted); }
+  .gear-btn:hover { color: #00bcd4 !important; background: rgba(0,188,212,0.08); }
+
+  /* Gear popover items */
+  .gear-menu-item {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    background: none;
+    border: none;
+    color: #ccc;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.82rem;
+    padding: 0.45rem 0.85rem;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.15s, color 0.15s;
+  }
+  .gear-menu-item:hover { background: rgba(0,188,212,0.08); color: #00bcd4; }
+
+  /* Row hover; the whole row opens its detail */
+  tr.audit-row { cursor: pointer; }
+  tr.audit-row:hover td { background: rgba(255,255,255,0.02); }
+  tr.audit-row:focus-visible { outline: 1px solid rgba(0,188,212,0.5); outline-offset: -1px; }
+  /* The detail in one line, under the action (audit.summary) */
+  .audit-summary { margin-top: 0.2rem; font-family: 'JetBrains Mono', monospace; font-size: 0.72rem;
+                   color: var(--nr-text-muted); min-width: 22rem; max-width: 34rem; overflow-wrap: anywhere; }
