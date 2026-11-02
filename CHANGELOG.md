@@ -6,6 +6,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ## [Unreleased]
 
+### Added
+
+- **Test a token on Variable Mappings**: choose a device and type a token, or a whole command line, to see what that device would get in your rollout - each token's value and the property it comes from, or why it can't be filled in (no such token, not assigned to the device, no value). Nothing is sent to the device. Until now a token that couldn't be filled in showed only when launching a rollout.
+
 ### Changed
 
 - **NetRollout Manager greys Open NetRollout while NetRollout is stopped**: the button, the tray menu's item and the address link, with a hint to start it first. They opened a browser that couldn't connect.

@@ -813,6 +813,45 @@ def test_unresolved_names_every_token_that_cant_be_filled(commands, subs, extra,
 	assert device.unresolved(commands) == problems
 
 
+@pytest.mark.parametrize("token, subs, extra, expected", [
+	("$$HOST$$", {"$$HOST$$": ("hostname", None)}, {"hostname": " r1 "}, "r1"),   # trimmed, as substituted
+	("$$VRF$$", {"$$VRF$$": ("vrfs", 1)}, {"vrfs": ["red", "blue"]}, "blue"),
+	("$$ASN$$", {"$$ASN$$": ("asn", None)}, {"asn": 65001}, "65001"),
+])
+def test_value_for_is_what_commands_for_substitutes(token, subs, extra, expected):
+	"""Device.value_for gives the token's value on the device exactly as commands_for
+	puts it into a command (an index into a list, trimmed, as text)."""
+	device = make_device(var_map_subs=subs, extra=extra)
+	assert device.value_for(token) == expected
+	assert device.commands_for([f"x {token}"]) == [f"x {expected}"]
+
+
+@pytest.mark.parametrize("token, subs, extra, reason", [
+	("$$LO$$", {}, {"loopback_ip": "10.0.0.1"}, "no mapping on this device"),
+	("$$LO$$", {"$$LO$$": ("loopback_ip", None)}, {}, "no value for 'loopback_ip'"),
+	("$$VRF$$", {"$$VRF$$": ("vrfs", 2)}, {"vrfs": ["red", "blue"]}, "no value for 'vrfs[2]'"),
+])
+def test_value_for_refuses_in_unresolveds_words(token, subs, extra, reason):
+	"""A token that can't be filled in raises SubstitutionError with unresolved()'s reason,
+	without the token - the Mappings page's token test shows it beside the token."""
+	device = make_device(var_map_subs=subs, extra=extra)
+	with pytest.raises(SubstitutionError) as raised:
+		device.value_for(token)
+	assert str(raised.value) == reason
+	assert device.unresolved([token]) == [f"{token}: {reason}"]
+
+
+def test_a_preview_device_has_the_users_mappings_and_no_credentials():
+	"""Device.for_preview (the token test) keeps only that user's mappings, takes the
+	attributes it's given, and carries no credentials - it's never connected to."""
+	row = global_row()
+	device = Device.for_preview(row, USER_B, {"vrfs": ["green", "amber"]})
+	assert device.var_map_subs == {"$$HOST$$": ("vrfs", 1)}
+	assert device.commands_for(["vrf $$HOST$$"]) == ["vrf amber"]
+	assert (device.username, device.password, device.secret) == ("", "", "")
+	assert Device.for_preview(row, USER_C, {}).var_map_subs == {}
+
+
 def test_a_device_with_a_leftover_token_is_skipped_at_push():
 	"""At push time (a value gone while the job was queued, or the CLI) a device whose
 	commands keep a token is skipped and failed without connecting - not sent

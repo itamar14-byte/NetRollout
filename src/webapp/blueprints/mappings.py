@@ -14,7 +14,7 @@ from src.audit import AuditAction
 from src.db.tables import VariableMapping, PropertyDefinition
 from src.inventory import SYSTEM_NAMES, InventoryView, PropertyDef, partition_devices
 from src.rollout import inputs
-from src.rollout.engine import mapping_resolvable
+from src.rollout.engine import TOKEN_IN_COMMAND, Device, SubstitutionError, mapping_resolvable
 from src.rollout.log import RolloutLogger, Tone
 from src.webapp.app import current_app
 from src.webapp.hooks import signed_in_user
@@ -23,6 +23,9 @@ from src.webapp.http import (NotFound, Refused, ok, err, with_form, with_json, f
 
 
 bp = Blueprint('mappings', __name__, url_prefix='/mappings')
+
+# a token's name typed alone in the token test (LO_IP for $$LO_IP$$)
+BARE_TOKEN = re.compile(r"[A-Za-z0-9_]{1,64}")
 
 
 def property_defs() -> tuple[list[PropertyDef], list[PropertyDef]]:
@@ -218,6 +221,58 @@ def mappings_edit(mapping_id: uuid.UUID, data: Any) -> ResponseReturnValue:
 		flash("A mapping with that token already exists.", "danger")
 
 	return redirect(url_for("mappings.mappings"))
+
+
+@bp.route("/test", methods=["POST"])
+@login_required
+@with_json("device_id", "text")
+def mappings_test(data: dict[str, Any]) -> ResponseReturnValue:
+	"""Fill the $$TOKEN$$s of a command line in for one device the user sees,
+	as a rollout by them would: JSON {device_id, text}; a bare token name
+	(LO_IP) counts as $$LO_IP$$. Nothing is changed or connected to.
+
+	:returns: {line: the text as the device would get it, null when a token
+	 can't be filled in; tokens: [{token, value, source} or {token, problem}]}
+	 - 400 no token in the text, 404 not a device the user sees"""
+	text = str(data["text"]).strip()
+	if BARE_TOKEN.fullmatch(text):
+		text = f"$${text.upper()}$$"
+	tokens = list(dict.fromkeys(TOKEN_IN_COMMAND.findall(text)))
+	if not tokens:
+		return err("No $$TOKEN$$ in it - type a token, or a command line that uses one")
+	try:
+		device_id = uuid.UUID(str(data["device_id"]))
+	except ValueError:
+		return err("Invalid device ID", 422)
+
+	with current_app.backend.postgres.get_session() as db_session:
+		view = InventoryView(db_session, viewer())
+		row = view.get_visible(device_id)
+		if row is None:
+			return err("Device not found", 404)
+		device = Device.for_preview(row, viewer().id, view.attributes([row])[row.id])
+		own_tokens = {token for (token,) in db_session.query(VariableMapping.token)
+		              .filter_by(user_id=viewer().id)}
+		sys_props, user_props = view.property_defs()
+	labels = {p["name"]: p["label"] for p in sys_props + user_props}
+
+	results: list[dict[str, str]] = []
+	for token in tokens:
+		if token not in own_tokens:
+			results.append({"token": token, "problem": "no such token - you have no mapping with it"})
+			continue
+		try:
+			value = device.value_for(token)
+		except SubstitutionError as e:
+			results.append({"token": token, "problem": str(e)})
+			continue
+		property_name, index = device.var_map_subs[token]
+		source = labels.get(property_name, property_name)
+		results.append({"token": token, "value": value,
+		                "source": source if index is None else f"{source}[{index}]"})
+	line = (None if any("problem" in r for r in results)
+	        else device.commands_for([text])[0])
+	return ok(line=line, tokens=results)
 
 
 @bp.route("/<uuid:mapping_id>/delete", methods=["POST"])

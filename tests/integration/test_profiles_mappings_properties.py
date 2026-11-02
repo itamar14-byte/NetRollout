@@ -439,6 +439,105 @@ def test_a_mapping_index_that_isnt_a_number_is_refused_in_words(
 	assert mappings_of(session_scope, user) == []
 
 
+# ── The token test (POST /mappings/test) ─────────────────────────────────────
+
+def token_test(client, device, text):
+	return client.post("/mappings/test", json={"device_id": str(device), "text": text})
+
+
+def test_the_token_test_fills_a_command_line_in_as_a_rollout_would(
+		client_for, make_user, make_device, make_mapping):
+	"""A command line with two bound tokens comes back as the device gets it, each token
+	with its value and where it comes from (the property's label, an index shown)."""
+	user = make_user()
+	dev = make_device(user, var_maps={"loopback_ip": " 10.9.9.1 ", "vrfs": ["red", "blue"]})
+	make_mapping(user, "LO_IP", "loopback_ip", devices=[dev])
+	make_mapping(user, "VRF", "vrfs", index=1, devices=[dev])
+	resp = token_test(client_for(user), dev, "ip address $$LO_IP$$ 255.255.255.255 vrf $$VRF$$")
+	assert resp.status_code == 200
+	assert resp.json["line"] == "ip address 10.9.9.1 255.255.255.255 vrf blue"
+	assert resp.json["tokens"] == [
+		{"token": "$$LO_IP$$", "value": "10.9.9.1", "source": "Loopback IP"},
+		{"token": "$$VRF$$", "value": "blue", "source": "VRFs[1]"}]
+
+
+def test_the_token_test_takes_a_bare_token_name(client_for, make_user, make_device,
+                                                make_mapping):
+	"""A token's name typed alone (any case) is tested as $$NAME$$."""
+	user = make_user()
+	dev = make_device(user, var_maps={"hostname": "core-1"})
+	make_mapping(user, "HOST", "hostname", devices=[dev])
+	resp = token_test(client_for(user), dev, "host")
+	assert resp.json["line"] == "core-1"
+	assert resp.json["tokens"] == [{"token": "$$HOST$$", "value": "core-1", "source": "Hostname"}]
+
+
+def test_the_token_test_says_why_a_token_cant_be_filled_in(client_for, make_user,
+                                                           make_device, make_mapping):
+	"""No line when a token can't be filled in, and each token's reason: no mapping with
+	that token at all, a mapping not bound to this device, a bound one with no value."""
+	user = make_user()
+	dev = make_device(user, ip="10.0.0.1", var_maps={"hostname": "r1"})
+	other = make_device(user, ip="10.0.0.2")
+	make_mapping(user, "HOST", "hostname", devices=[dev])
+	make_mapping(user, "SITE", "site", devices=[other])
+	make_mapping(user, "LO", "loopback_ip", devices=[dev])
+	resp = token_test(client_for(user), dev, "x $$HOST$$ $$NOPE$$ $$SITE$$ $$LO$$")
+	assert resp.status_code == 200
+	assert resp.json["line"] is None
+	assert resp.json["tokens"] == [
+		{"token": "$$HOST$$", "value": "r1", "source": "Hostname"},
+		{"token": "$$NOPE$$", "problem": "no such token - you have no mapping with it"},
+		{"token": "$$SITE$$", "problem": "no mapping on this device"},
+		{"token": "$$LO$$", "problem": "no value for 'loopback_ip'"}]
+
+
+def test_the_token_test_uses_only_the_users_own_mappings_and_values(
+		client_for, make_user, make_device, make_mapping):
+	"""On a global device each user's test fills in their own binding and their own custom
+	value - another user's mapping of the same token is "no such token" for them."""
+	admin, operator = make_user(role="admin"), make_user()
+	dev = make_device(admin, is_global=True, var_maps={"hostname": "edge"})
+	make_mapping(admin, "HOST", "hostname", devices=[dev])
+	assert token_test(client_for(admin), dev, "$$HOST$$").json["line"] == "edge"
+	assert token_test(client_for(operator), dev, "$$HOST$$").json["tokens"] == [
+		{"token": "$$HOST$$", "problem": "no such token - you have no mapping with it"}]
+	client = client_for(operator)
+	client.post("/properties/create", json={"name": "rack", "label": "Rack"})
+	client.post(f"/inventory/{dev}/attributes", data={"attr_rack": "R12"})
+	make_mapping(operator, "RACK", "rack", devices=[dev])
+	assert token_test(client, dev, "$$RACK$$").json["tokens"] == [
+		{"token": "$$RACK$$", "value": "R12", "source": "Rack"}]
+	assert token_test(client_for(admin), dev, "$$RACK$$").json["line"] is None
+
+
+def test_the_token_test_refuses_text_without_a_token_and_a_device_it_cant_see(
+		client_for, make_user, make_device):
+	"""Text with no token is 400 with the reason; another user's private device is 404 (its
+	existence not revealed); an id that isn't one is 422; a blank field is 400."""
+	user, someone = make_user(), make_user()
+	mine, theirs = make_device(user), make_device(someone, ip="10.0.0.9")
+	client = client_for(user)
+	plain = token_test(client, mine, "hostname r1")
+	assert plain.status_code == 400
+	assert plain.json["message"].startswith("No $$TOKEN$$ in it")
+	assert token_test(client, theirs, "$$HOST$$").status_code == 404
+	assert token_test(client, "not-an-id", "$$HOST$$").status_code == 422
+	assert token_test(client, mine, "   ").status_code == 400
+
+
+def test_the_mappings_page_has_the_token_test(client_for, make_user, make_device,
+                                              make_mapping):
+	"""With a mapping and a device, the Mappings page shows the token test with that
+	device in its picker."""
+	user = make_user()
+	dev = make_device(user, label="core-sw-01")
+	make_mapping(user, devices=[dev])
+	page = client_for(user).get("/mappings").get_data(as_text=True)
+	assert 'id="tokenTestDevSelect"' in page and 'id="tokenTestBtn"' in page
+	assert f'data-value="{dev}"' in page and "core-sw-01" in page
+
+
 # ── Properties ───────────────────────────────────────────────────────────────
 
 def test_property_lifecycle(client_for, make_user, db_get):

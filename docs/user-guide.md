@@ -314,6 +314,8 @@ A token can't be filled in on a device if no mapping for it is assigned to that 
 - On **Launch Rollout**, each device with a problem is marked, and **Launch Rollout** stays disabled until you fix the commands or the device, or untick it.
 - If a value disappears while a rollout is queued, that device is skipped at push time and counted as failed. The other devices still run.
 
+To check before you launch, use **Test a token** at the top of **Variable Mappings**. Choose a device, then type a token (`$$LOOPBACK$$`, or just `loopback`) or a whole command line (`ip address $$LOOPBACK$$ 255.255.255.255`), and select **Test** or press Enter. You see the line exactly as that device would get it in a rollout of yours, with each token's value and the property it comes from. If a token can't be filled in, you see why: you have no mapping with that token, it isn't assigned to this device, or the device has no value. Nothing is sent to the device. Inside a command line the token's case must match, as in a rollout.
+
 ## Running a rollout
 
 Open **Launch Rollout**.

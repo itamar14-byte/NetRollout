@@ -38,6 +38,75 @@
 
 {% else %}
 
+<!-- ── Token test: a token, or a command line, filled in for one device ── -->
+{% set test_devices = global_devices + my_devices %}
+<section class="nr-card token-test" aria-labelledby="tokenTestTitle">
+    <div class="nr-card-accent"></div>
+    <div class="nr-card-body">
+        <div class="token-test-head">
+            <h3 id="tokenTestTitle">Test a token</h3>
+            <span class="nr-note-tight nr-muted" style="font-size:0.78rem;">
+                What a device gets, as a rollout by you would fill it in. Nothing is sent to the device.
+            </span>
+        </div>
+        {% if test_devices %}
+        <div class="token-test-row">
+            <div>
+                <label class="nr-label" id="tokenTestDevLabel">DEVICE</label>
+                <div class="nr-select" id="tokenTestDevSelect">
+                    <button type="button" class="nr-select-trigger" aria-haspopup="listbox"
+                            aria-expanded="false" aria-labelledby="tokenTestDevLabel tokenTestDevDisplay">
+                        <span class="nr-select-display" id="tokenTestDevDisplay">
+                            <span class="nr-select-placeholder">Select a device…</span>
+                        </span>
+                        <i class="bi bi-chevron-down nr-select-arrow" aria-hidden="true"></i>
+                    </button>
+                    <div class="nr-select-panel">
+                        <div class="nr-select-search-wrap">
+                            <input type="text" class="nr-select-search" placeholder="Search name or address…"
+                                   aria-label="Search devices">
+                        </div>
+                        <div class="nr-select-list">
+                            {% for d in test_devices %}
+                            <button type="button" class="nr-select-option"
+                                    data-value="{{ d.id|string }}"
+                                    data-label="{{ d.label }}"
+                                    data-ip="{{ d.ip }}"
+                                    data-type="{{ d.device_type }}">
+                                {% set logo = VENDOR_LOGOS.get(d.device_type, '') %}
+                                {% if logo %}
+                                <img alt="" src="{{ logo }}" width="16" height="16" data-nr-error="nrLogoIcon"
+                                     style="border-radius:3px; flex-shrink:0; opacity:0.85;">
+                                {% else %}
+                                <i class="bi bi-router" aria-hidden="true" style="font-size:0.85rem; color:var(--nr-text-muted); flex-shrink:0;"></i>
+                                {% endif %}
+                                <span class="opt-label">{{ d.label }}</span>
+                                <span class="opt-sub">{{ d.ip }}</span>
+                                <i class="bi bi-check2 opt-check" aria-hidden="true"></i>
+                            </button>
+                            {% endfor %}
+                            <div class="nr-select-empty">No device matches.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div>
+                <label class="nr-label" for="tokenTestText">TOKEN OR COMMAND LINE</label>
+                <input type="text" class="form-control" id="tokenTestText" autocomplete="off"
+                       spellcheck="false" autocapitalize="off"
+                       placeholder="$$LO_IP$$  or  ip address $$LO_IP$$ 255.255.255.255">
+            </div>
+            <button type="button" class="btn btn-primary btn-sm" id="tokenTestBtn" style="min-height:38px;">
+                <i class="bi bi-play me-1" aria-hidden="true"></i>Test
+            </button>
+        </div>
+        <div class="token-test-result" id="tokenTestResult" aria-live="polite"></div>
+        {% else %}
+        <p class="nr-note-tight nr-muted mb-0" style="font-size:0.82rem;">No devices in inventory yet - add one to test a token on it.</p>
+        {% endif %}
+    </div>
+</section>
+
 <!-- ── Mapping cards ── -->
 <div class="row g-3">
     {% for mapping in mappings %}

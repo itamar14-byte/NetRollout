@@ -66,6 +66,14 @@ def missing_value(var_maps: dict[str, Any] | None, property_name: str,
 	return f"no value for '{where}'"
 
 
+def _mappings_of(row: "Inventory", user_id: uuid.UUID) -> dict[str, tuple[str, int | None]]:
+	""":returns: the user's mappings bound to the device, as Device.var_map_subs
+	 - only their own (the join table is shared across users through global
+	 devices)"""
+	return {m.token: (m.property_name, m.index)
+	        for m in row.var_mappings if m.user_id == user_id}
+
+
 # a $$TOKEN$$ in a command (a mapping's token shape: inputs.token_problem); a
 # lone $$ isn't one
 TOKEN_IN_COMMAND = re.compile(r"\$\$[A-Za-z0-9_]{1,64}\$\$")
@@ -286,13 +294,26 @@ class Device:
 				if token in seen:
 					continue
 				seen.add(token)
-				if token not in self.var_map_subs:
-					problems.append(f"{token}: no mapping on this device")
-					continue
-				property_name, index = self.var_map_subs[token]
-				if missing := missing_value(self.extra, property_name, index):
-					problems.append(f"{token}: {missing}")
+				try:
+					self.value_for(token)
+				except SubstitutionError as e:
+					problems.append(f"{token}: {e}")
 		return problems
+
+	def value_for(self, token: str) -> str:
+		""":returns: what the $$TOKEN$$ is replaced with on this device, as
+		 commands_for() substitutes it
+		:raises SubstitutionError: why it can't be (unresolved()'s words, without
+		 the token): no mapping on this device, or no value"""
+		if token not in self.var_map_subs:
+			raise SubstitutionError("no mapping on this device")
+		property_name, index = self.var_map_subs[token]
+		if missing := missing_value(self.extra, property_name, index):
+			raise SubstitutionError(missing)
+		value = self.extra[property_name]
+		if index is not None:
+			value = value[index]
+		return str(value).strip()
 
 	def commands_for(self, commands: list[str]) -> list[str]:
 		"""The commands with the device's $$TOKEN$$s replaced by its values.
@@ -331,21 +352,28 @@ class Device:
 		 values and the user's own custom ones); None: the row's var_maps
 		:param dns_suffix: added to a bare name when connecting
 		:raises ValueError: no profile"""
-		mappings = [m for m in row.var_mappings if m.user_id == user_id]
 		if profile is None:
 			raise ValueError(f"you have no security profile on {row.label or row.ip}")
-
-		parsed_mappings = {m.token: (m.property_name, m.index) for m in
-		                   mappings}
 
 		return cls(ip=row.ip, label=row.label, device_type=row.device_type,
 		           port=row.port, username=profile.username,
 		           password=encryption.decrypt(profile.password_secret),
 		           secret=encryption.decrypt(profile.enable_secret) if
 		           profile.enable_secret else "",
-		           var_map_subs=parsed_mappings,
+		           var_map_subs=_mappings_of(row, user_id),
 		           extra=(row.var_maps or {}) if attributes is None else attributes,
 		           dns_suffix=dns_suffix)
+
+	@classmethod
+	def for_preview(cls, row: "Inventory", user_id: uuid.UUID,
+	                attributes: dict[str, Any]) -> "Device":
+		"""The device as a rollout by this user fills its $$TOKEN$$s in, without
+		credentials - the Mappings page's token test; never connected to.
+
+		:param attributes: as from_inventory's (InventoryView.attributes)"""
+		return cls(ip=row.ip, label=row.label, device_type=row.device_type,
+		           port=row.port, username="", password="", secret="",
+		           var_map_subs=_mappings_of(row, user_id), extra=attributes)
 
 
 class RolloutEngine:

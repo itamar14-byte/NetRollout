@@ -125,3 +125,35 @@
 .index-field-wrap { display: none; }
 .index-field-wrap.visible { display: block; }
 
+/* ── Token test ── */
+/* The device list opens below the card: .nr-card's overflow:hidden would clip it
+   (and scroll the card to show the search box), so this card lets it out and
+   rounds the accent bar itself. */
+.token-test { margin-bottom: 1.5rem; overflow: visible; }
+.token-test .nr-card-accent { border-radius: 12px 12px 0 0; }
+.token-test .nr-card-body { padding: 1.1rem 1.25rem 1.2rem; }
+.token-test-head { display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 0.85rem; }
+.token-test-head h3 { font-size: 0.95rem; font-weight: 600; margin: 0; }
+.token-test-row { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto; gap: 0.6rem; align-items: end; }
+@media (max-width: 767px) { .token-test-row { grid-template-columns: minmax(0, 1fr); } }
+.token-test-row .form-control { font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; min-height: 38px; }
+/* the picker's trigger and options are buttons (keyboard): look as the page's other pickers */
+button.nr-select-trigger { width: 100%; text-align: left; color: inherit; font: inherit; }
+button.nr-select-option { width: 100%; background: none; border: none; text-align: left; color: inherit; font: inherit; }
+.nr-select-option .opt-label { font-size: 0.8rem; color: #ccc; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nr-select-option .opt-sub { font-family: 'JetBrains Mono', monospace; font-size: 0.72rem; color: var(--nr-text-muted); }
+.nr-select-empty { padding: 0.5rem 0.75rem; font-size: 0.78rem; color: var(--nr-text-muted); display: none; }
+.token-test-result { margin-top: 0.9rem; display: none; }
+.token-test-result.shown { display: block; }
+.token-test-line {
+    font-family: 'JetBrains Mono', monospace; font-size: 0.82rem; color: #a5d6a7;
+    background: rgba(76,175,80,0.08); border: 1px solid rgba(76,175,80,0.2);
+    border-radius: 6px; padding: 0.55rem 0.8rem; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.token-test-line.failed { color: #ef9a9a; background: rgba(239,83,80,0.08); border-color: rgba(239,83,80,0.2); }
+.token-test-tokens { list-style: none; margin: 0.55rem 0 0; padding: 0; display: grid; gap: 0.3rem; }
+.token-test-tokens li { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; font-size: 0.8rem; }
+.token-test-tokens .tt-token { font-family: 'JetBrains Mono', monospace; color: #00bcd4; }
+.token-test-tokens .tt-value { font-family: 'JetBrains Mono', monospace; color: #e0e0e0; }
+.token-test-tokens .tt-source { color: var(--nr-text-muted); font-size: 0.75rem; }
+.token-test-tokens .tt-problem { color: #ef9a9a; }

@@ -364,6 +364,138 @@ function attrOption(name, icon, isList) {
     return opt;
 }
 
+// ══════════════════════════════════════
+//  TOKEN TEST (POST /mappings/test)
+// ══════════════════════════════════════
+(function initTokenTest() {
+    const container = document.getElementById('tokenTestDevSelect');
+    if (!container) return;
+    const trigger = container.querySelector('.nr-select-trigger');
+    const display = container.querySelector('.nr-select-display');
+    const options = container.querySelectorAll('.nr-select-option');
+    const empty   = container.querySelector('.nr-select-empty');
+    const text    = document.getElementById('tokenTestText');
+    const btn     = document.getElementById('tokenTestBtn');
+    const result  = document.getElementById('tokenTestResult');
+    let deviceId  = '';
+
+    const shell = nrSelectShell(container, filter, null);
+    // aria-expanded follows the panel, however it opened or closed (the shell's own trigger, outside clicks)
+    new MutationObserver(() => trigger.setAttribute('aria-expanded',
+        String(container.classList.contains('open')))).observe(container, {attributes: true, attributeFilter: ['class']});
+
+    function filter(q) {
+        const lq = q.toLowerCase();
+        let shown = 0;
+        options.forEach(o => {
+            const match = !q || o.dataset.label.toLowerCase().includes(lq)
+                             || o.dataset.ip.toLowerCase().includes(lq);
+            o.style.display = match ? '' : 'none';
+            if (match) shown++;
+        });
+        empty.style.display = shown ? 'none' : 'block';
+    }
+
+    function pick(o) {
+        deviceId = o.dataset.value;
+        options.forEach(x => x.classList.toggle('selected', x === o));
+        display.replaceChildren(...[...o.children]
+            .filter(c => !c.classList.contains('opt-check'))
+            .map(c => c.cloneNode(true)));
+        display.querySelector('.opt-label')?.classList.replace('opt-label', 'nr-select-display-label');
+        shell.close();
+        trigger.focus();
+        clearResult();
+    }
+
+    options.forEach(o => shell.wire(o, pick));
+    shell.listen();
+    container.addEventListener('keydown', e => {
+        if (e.key === 'Escape' && container.classList.contains('open')) {
+            e.stopPropagation();
+            shell.close();
+            trigger.focus();
+        }
+    });
+    // Enter in the search picks the first device it shows
+    container.querySelector('.nr-select-search').addEventListener('keydown', e => {
+        if (e.key !== 'Enter') return;
+        e.preventDefault();
+        const first = [...options].find(o => o.style.display !== 'none');
+        if (first) pick(first);
+    });
+
+    function clearResult() {
+        result.classList.remove('shown');
+        result.replaceChildren();
+    }
+
+    function el(tag, cls, content) {
+        const node = document.createElement(tag);
+        if (cls) node.className = cls;
+        if (content !== undefined) node.textContent = content;
+        return node;
+    }
+
+    function show(data) {
+        const tokens = data.tokens || [];
+        const line = el('div', 'token-test-line' + (data.line === null ? ' failed' : ''));
+        if (data.line !== null) {
+            line.textContent = data.line;
+        } else {
+            const bad = tokens.filter(t => t.problem).length;
+            line.textContent = bad === 1 ? "A token can't be filled in on this device."
+                                         : bad + " tokens can't be filled in on this device.";
+        }
+        const list = el('ul', 'token-test-tokens');
+        tokens.forEach(t => {
+            const li = el('li');
+            li.append(el('span', 'tt-token', t.token));
+            if (t.problem) {
+                li.append(el('span', 'tt-problem', t.problem));
+            } else {
+                li.append(el('i', 'bi bi-arrow-right nr-muted'));
+                li.lastChild.setAttribute('aria-hidden', 'true');
+                li.append(el('span', 'tt-value', t.value === '' ? '(empty)' : t.value),
+                          el('span', 'tt-source', 'from ' + t.source));
+            }
+            list.append(li);
+        });
+        result.replaceChildren(line, list);
+        result.classList.add('shown');
+    }
+
+    function showError(message) {
+        result.replaceChildren(el('div', 'token-test-line failed', message));
+        result.classList.add('shown');
+    }
+
+    async function run() {
+        if (!deviceId) { showError('Select a device first.'); trigger.focus(); return; }
+        if (!text.value.trim()) { showError('Type a token or a command line first.'); text.focus(); return; }
+        btn.disabled = true;
+        try {
+            const resp = await fetch('/mappings/test', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN},
+                body: JSON.stringify({device_id: deviceId, text: text.value})
+            });
+            const data = await resp.json().catch(() => ({}));
+            if (resp.ok && data.status === 'ok') show(data);
+            else showError(data.message || 'The test failed (HTTP ' + resp.status + ').');
+        } catch (e) {
+            showError("Couldn't reach NetRollout - check the connection and try again.");
+        } finally {
+            btn.disabled = false;
+        }
+    }
+
+    btn.addEventListener('click', run);
+    text.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); run(); } });
+    text.addEventListener('input', clearResult);
+})();
+
+
 // What this page's elements name in data-nr-<event> (js/events.js)
 nrHandlers({
     openMappingQuickProp: () => { openMappingQuickProp(); },
