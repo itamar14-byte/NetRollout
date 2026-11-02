@@ -57,3 +57,8 @@
     updateElapsed();
     setInterval(updateElapsed, 1000);
     }
+
+// What this page's elements name in data-nr-<event> (js/events.js)
+nrHandlers({
+    applyKpiScope: el => { applyKpiScope(el.value); },
+});
