@@ -1,6 +1,6 @@
-{# Named styles for what pages wrote inline again and again (help lines,
-   label hints, table headers, KPI numbers...). Included last in each
-   skeleton's <style>, before the page's own. #}
+/* Named styles for what pages wrote inline again and again (help lines,
+   label hints, table headers, KPI numbers...). Linked last by each
+   skeleton, before the page's own. */
         .nr-label-hint { color:var(--nr-text-muted); text-transform:none; letter-spacing:0; }   /* a hint inside a field's label, e.g. (optional) */
         .nr-help { font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.3rem; }   /* the help line under a field */
         .nr-help-spaced { font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.4rem; }   /* the help line under a field, a little lower */
