@@ -502,7 +502,7 @@
       ? '<span class="conn-dot connected"></span>'
       : '<span class="conn-dot disconnected"></span>';
     return `
-      <div class="ldap-server-row" id="row-${s.id}" onclick="toggleExpand('${s.id}')"
+      <div class="ldap-server-row" id="row-${s.id}" data-nr-click="toggleExpand" data-server-id="${s.id}"
            role="button" tabindex="0" data-nr-activate aria-expanded="false" aria-controls="panel-${s.id}">
         ${dot}
         <span class="ldap-server-name">${nrEscape(s.name)}</span>
@@ -591,7 +591,7 @@
           <div class="col-md-2 d-flex align-items-end pb-1">
             <div class="form-check form-switch mb-0">
               <input class="form-check-input" type="checkbox" id="e_${s.id}_ssl"
-                     ${s.use_ssl ? 'checked' : ''} onchange="ldapsToggle('${s.id}')">
+                     ${s.use_ssl ? 'checked' : ''} data-nr-change="ldapsToggle" data-server-id="${s.id}">
               <label class="form-check-label nr-label mb-0" for="e_${s.id}_ssl">LDAPS</label>
             </div>
           </div>
@@ -599,7 +599,7 @@
             <label class="nr-label">Base DN</label>
             <div class="input-group input-group-sm">
               <input id="e_${s.id}_dn" class="form-control" value="${nrEscape(s.base_dn)}">
-              <button class="btn btn-outline-secondary" type="button" onclick="fetchDn('${s.id}')">
+              <button class="btn btn-outline-secondary" type="button" data-nr-click="fetchDn" data-server-id="${s.id}">
                 <span id="e_${s.id}_fetch_spin" style="display:none;"
                       class="spinner-border spinner-border-sm"></span>
                 <i class="bi bi-search" id="e_${s.id}_fetch_ico"></i> Fetch
@@ -615,13 +615,13 @@
             <label class="nr-label d-block mb-2">Bind Type</label>
             <div class="d-flex gap-2" role="radiogroup" aria-label="Bind type">
               <div class="ldap-bind-option ${!isReg ? 'selected' : ''}"
-                   onclick="setBindType('${s.id}', 'simple')" id="e_${s.id}_opt_simple"
+                   data-nr-click="setBindType" data-server-id="${s.id}" data-bind-type="simple" id="e_${s.id}_opt_simple"
                    role="radio" aria-checked="${!isReg}" tabindex="0" data-nr-activate>
                 <div style="font-weight:600; font-size:0.84rem; color:#ccc;">Simple</div>
                 <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.15rem;">No stored service credentials</div>
               </div>
               <div class="ldap-bind-option ${isReg ? 'selected' : ''}"
-                   onclick="setBindType('${s.id}', 'regular')" id="e_${s.id}_opt_regular"
+                   data-nr-click="setBindType" data-server-id="${s.id}" data-bind-type="regular" id="e_${s.id}_opt_regular"
                    role="radio" aria-checked="${isReg}" tabindex="0" data-nr-activate>
                 <div style="font-weight:600; font-size:0.84rem; color:#ccc;">Regular</div>
                 <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.15rem;">Service account - enables Explorer + group rules</div>
@@ -658,22 +658,22 @@
         </div>
 
         <div class="d-flex gap-2 mt-4 flex-wrap align-items-center">
-          <button class="btn btn-outline-primary btn-sm" onclick="testConn('${s.id}')">
+          <button class="btn btn-outline-primary btn-sm" data-nr-click="testConn" data-server-id="${s.id}">
             <i class="bi bi-plug me-1"></i>Test
           </button>
-          <button class="btn btn-outline-secondary btn-sm" onclick="toggleTestUser('${s.id}')">
+          <button class="btn btn-outline-secondary btn-sm" data-nr-click="toggleTestUser" data-server-id="${s.id}">
             <i class="bi bi-person-check me-1"></i>Test User
           </button>
           <button class="btn btn-sm" style="color:#80deea; border:1px solid rgba(0,188,212,0.25);
-                  background:rgba(0,188,212,0.05);" onclick="openExplorer('${s.id}')"
+                  background:rgba(0,188,212,0.05);" data-nr-click="openExplorer" data-server-id="${s.id}"
                   id="e_${s.id}_exp_btn" ${expDisabled}>
             <i class="bi bi-diagram-3 me-1"></i>Explorer
           </button>
           <span style="flex:1;"></span>
-          <button class="btn btn-outline-danger btn-sm" onclick="deleteServer('${s.id}')">
+          <button class="btn btn-outline-danger btn-sm" data-nr-click="deleteServer" data-server-id="${s.id}">
             <i class="bi bi-trash3 me-1"></i>Delete
           </button>
-          <button class="btn btn-primary btn-sm" onclick="saveServer('${s.id}')">
+          <button class="btn btn-primary btn-sm" data-nr-click="saveServer" data-server-id="${s.id}">
             <i class="bi bi-floppy me-1"></i>Save
           </button>
         </div>
@@ -692,7 +692,7 @@
             </div>
             <div class="col-md-4">
               <button class="btn btn-outline-secondary btn-sm w-100"
-                      onclick="runTestUser('${s.id}')">Test</button>
+                      data-nr-click="runTestUser" data-server-id="${s.id}">Test</button>
             </div>
           </div>
           <div id="e_${s.id}_tur" style="display:none; margin-top:0.5rem;"></div>
@@ -1162,3 +1162,27 @@
       }
     });
   }
+
+// What this page's elements name in data-nr-<event> (js/events.js)
+nrHandlers({
+    selectService: el => { selectService(el.dataset.service); },
+    testRedis: () => { testRedis(); },
+    saveRedis: () => { saveRedis(); },
+    toggleNewForm: () => { toggleNewForm(); },
+    newLdapsToggle: () => { newLdapsToggle(); },
+    newBindType: el => { newBindType(el.dataset.bindType); },
+    saveNewServer: () => { saveNewServer(); },
+    confirmDeleteServer: () => { confirmDeleteServer(); },
+    importSelected: () => { importSelected(); },
+    // an LDAP server's row and panel (data-server-id)
+    toggleExpand: el => { toggleExpand(el.dataset.serverId); },
+    ldapsToggle: el => { ldapsToggle(el.dataset.serverId); },
+    fetchDn: el => { fetchDn(el.dataset.serverId); },
+    setBindType: el => { setBindType(el.dataset.serverId, el.dataset.bindType); },
+    testConn: el => { testConn(el.dataset.serverId); },
+    toggleTestUser: el => { toggleTestUser(el.dataset.serverId); },
+    openExplorer: el => { openExplorer(el.dataset.serverId); },
+    deleteServer: el => { deleteServer(el.dataset.serverId); },
+    saveServer: el => { saveServer(el.dataset.serverId); },
+    runTestUser: el => { runTestUser(el.dataset.serverId); },
+});

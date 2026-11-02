@@ -27,7 +27,7 @@
     <div class="d-flex flex-column flex-md-row gap-3 mb-4">
 
       <!-- PostgreSQL button -->
-      <div class="db-service-btn" id="svc-postgres" onclick="selectService('postgres')"
+      <div class="db-service-btn" id="svc-postgres" data-nr-click="selectService" data-service="postgres"
            role="button" tabindex="0" data-nr-activate aria-expanded="false" aria-controls="form-postgres">
         <div class="d-flex align-items-center gap-3">
           <img alt="" src="{{ asset('vendor/logos/postgresql-336791.svg') }}" width="32" height="32"
@@ -53,7 +53,7 @@
       </div>
 
       <!-- Redis button -->
-      <div class="db-service-btn" id="svc-redis" onclick="selectService('redis')"
+      <div class="db-service-btn" id="svc-redis" data-nr-click="selectService" data-service="redis"
            role="button" tabindex="0" data-nr-activate aria-expanded="false" aria-controls="form-redis">
         <div class="d-flex align-items-center gap-3">
           <img alt="" src="{{ asset('vendor/logos/redis-original.svg') }}" width="32" height="32"
@@ -256,10 +256,10 @@
       </div>
       <div id="rdTestResult" class="mt-3" style="display:none;"></div>
       <div class="d-flex gap-2 mt-4 align-items-center">
-        <button class="btn btn-outline-primary btn-sm" id="rdBtnTest" onclick="testRedis()">
+        <button class="btn btn-outline-primary btn-sm" id="rdBtnTest" data-nr-click="testRedis">
           <i class="bi bi-plug me-1"></i>Test Connection
         </button>
-        <button class="btn btn-primary btn-sm" id="rdBtnSave" onclick="saveRedis()" disabled>
+        <button class="btn btn-primary btn-sm" id="rdBtnSave" data-nr-click="saveRedis" disabled>
           <i class="bi bi-floppy me-1"></i>Save Configuration
         </button>
         <span id="rdSaveSpinner" class="spinner-border spinner-border-sm text-info ms-1" style="display:none;"></span>
@@ -360,7 +360,7 @@
           LDAP / Active Directory
         </span>
       </div>
-      <button class="btn btn-outline-primary btn-sm" onclick="toggleNewForm()">
+      <button class="btn btn-outline-primary btn-sm" data-nr-click="toggleNewForm">
         <i class="bi bi-plus me-1"></i>Add Server
       </button>
     </div>
@@ -383,7 +383,7 @@
         </div>
         <div class="col-md-2 d-flex align-items-end pb-1">
           <div class="form-check form-switch mb-0">
-            <input class="form-check-input" type="checkbox" id="n_ssl" onchange="newLdapsToggle()">
+            <input class="form-check-input" type="checkbox" id="n_ssl" data-nr-change="newLdapsToggle">
             <label class="form-check-label nr-label mb-0" for="n_ssl">LDAPS</label>
           </div>
         </div>
@@ -398,12 +398,12 @@
         <div class="col-12">
           <label class="nr-label d-block mb-2">Bind Type</label>
           <div class="d-flex gap-2" role="radiogroup" aria-label="Bind type">
-            <div class="ldap-bind-option selected" onclick="newBindType('simple')" id="n_opt_simple"
+            <div class="ldap-bind-option selected" data-nr-click="newBindType" data-bind-type="simple" id="n_opt_simple"
                  role="radio" aria-checked="true" tabindex="0" data-nr-activate>
               <div style="font-weight:600; font-size:0.84rem; color:#ccc;">Simple</div>
               <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.15rem;">No stored service credentials</div>
             </div>
-            <div class="ldap-bind-option" onclick="newBindType('regular')" id="n_opt_regular"
+            <div class="ldap-bind-option" data-nr-click="newBindType" data-bind-type="regular" id="n_opt_regular"
                  role="radio" aria-checked="false" tabindex="0" data-nr-activate>
               <div style="font-weight:600; font-size:0.84rem; color:#ccc;">Regular</div>
               <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.15rem;">Service account - enables Explorer + group rules</div>
@@ -432,8 +432,8 @@
       </div>
       <div id="n_result" style="display:none; margin-top:0.6rem;"></div>
       <div class="d-flex gap-2 mt-4">
-        <button class="btn btn-secondary btn-sm" onclick="toggleNewForm()">Cancel</button>
-        <button class="btn btn-primary btn-sm" onclick="saveNewServer()">
+        <button class="btn btn-secondary btn-sm" data-nr-click="toggleNewForm">Cancel</button>
+        <button class="btn btn-primary btn-sm" data-nr-click="saveNewServer">
           <i class="bi bi-floppy me-1"></i>Save Server
         </button>
       </div>
@@ -481,7 +481,7 @@
       </div>
       <div class="modal-footer border-0 pt-1">
         <button class="btn btn-outline-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-        <button class="btn btn-danger btn-sm" id="ldapDeleteBtn" onclick="confirmDeleteServer()">
+        <button class="btn btn-danger btn-sm" id="ldapDeleteBtn" data-nr-click="confirmDeleteServer">
           <i class="bi bi-trash3 me-1"></i>Delete server
         </button>
       </div>
@@ -518,7 +518,7 @@
             <input type="checkbox" class="form-check-input mt-0" id="expReconnect" style="flex-shrink:0;">
             <span>Reconnect existing accounts with these names (their server was deleted; they stay disabled)</span>
           </label>
-          <button class="btn btn-primary btn-sm mt-2" id="btnImport" onclick="importSelected()" disabled>
+          <button class="btn btn-primary btn-sm mt-2" id="btnImport" data-nr-click="importSelected" disabled>
             <i class="bi bi-download me-1"></i>Import Selected
           </button>
         </div>
