@@ -1,0 +1,395 @@
+/* New Rollout - see templates/new_rollout.html (data-held-url). */
+/* ── Device row ── */
+.device-row {
+    display: flex;
+    align-items: center;
+    gap: 0.9rem;
+    padding: 0.55rem 0.85rem;
+    border-bottom: 1px solid #181818;
+    cursor: pointer;
+    transition: background 0.12s;
+    user-select: none;
+}
+.device-row:last-child { border-bottom: none; }
+.device-row:hover { background: rgba(255,255,255,0.02); }
+.device-row.selected { background: rgba(0,188,212,0.04); }
+.device-row.disabled {
+    opacity: 0.55;  /* inactive, but you can still read which device it is */
+    cursor: not-allowed;
+}
+.device-row.disabled * { pointer-events: none; }
+
+/* The logo shows the device's state: its brand colours once it's reachable,
+   grey while it's being checked or when it isn't (the reach icon beside it
+   says which, by shape). Inventory's cards do the same. */
+.device-logo {
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    object-fit: contain;
+    filter: grayscale(1);
+    opacity: 0.65;
+    transition: filter 0.3s, opacity 0.3s;
+}
+.device-row:has(.reach--up) .device-logo { filter: brightness(0.95); opacity: 1; }
+/* Arista's dark wordmark stays white in both states (operator_base) */
+.device-logo[src*="Arista-networks-logo"],
+.device-row:has(.reach--up) .device-logo[src*="Arista-networks-logo"] { filter: brightness(0) invert(1); }
+.device-logo-fallback {
+    width: 22px;
+    height: 22px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.9rem;
+    color: var(--nr-text-muted);
+}
+
+.device-info { flex: 1; min-width: 0; }
+.device-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.83rem;
+    font-weight: 500;
+    color: #ccc;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.device-ip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--nr-text-muted);
+}
+
+.platform-tag {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6875rem;
+    color: var(--nr-text-muted);
+    background: #161616;
+    border: 1px solid #222;
+    border-radius: 4px;
+    padding: 0.15rem 0.45rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* reachability indicator styles are shared (operator_base) */
+
+/* ── Same ip:port ticked twice: the same box would be pushed twice ── */
+.device-row.dup-conflict { box-shadow: inset 2px 0 0 #ef5350; }
+/* ── A $$TOKEN$$ in its commands that can't be filled in on it ── */
+.device-row.token-blocked { box-shadow: inset 2px 0 0 #ef5350; }
+.dup-note, .token-note {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6875rem;
+    color: #ef9a9a;
+    background: rgba(239,83,80,0.08);
+    border: 1px solid rgba(239,83,80,0.3);
+    border-radius: 4px;
+    padding: 0.05rem 0.4rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+/* ── Why a row can't be selected: one chip per reason (the tooltip has the
+   details) - no profile of yours, not reachable, in another rollout ── */
+.state-chip {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.625rem;
+    letter-spacing: 0.5px;
+    border-radius: 4px;
+    border: 1px solid;
+    padding: 0.05rem 0.4rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.state-chip--noprofile { color: #bdbdbd; background: #161616; border-color: #333; }
+.state-chip--down      { color: #ef9a9a; background: rgba(239,83,80,0.08); border-color: rgba(239,83,80,0.3); }
+/* cyan, as Inventory's IN ROLLOUT: amber is Inventory's ACTION NEEDED */
+.state-chip--held      { color: #80deea; background: rgba(0,188,212,0.08); border-color: rgba(0,188,212,0.4); }
+.state-chip--held { display: inline-flex; align-items: center; gap: 0.3rem; }
+.state-chip--held[hidden] { display: none; }
+.state-chip--held::before {
+    content: ''; width: 5px; height: 5px; border-radius: 50%; background: #00bcd4;
+    animation: held-pulse 1.6s ease-in-out infinite;
+}
+@keyframes held-pulse { 50% { opacity: 0.25; } }
+@media (prefers-reduced-motion: reduce) { .state-chip--held::before { animation: none; } }
+
+/* ── No-profile tooltip ── */
+.device-row.disabled {
+    position: relative;
+}
+/* hidden on every row (enabled rows keep a stale reach-tip), shown on
+   hover only while the row is disabled */
+.device-row .no-profile-tip {
+    display: none;
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: #1a1a1a;
+    border: 1px solid #3a2020;
+    border-radius: 6px;
+    padding: 5px 10px;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.75rem;
+    color: #ef5350;
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 10;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+.device-row.disabled:hover .no-profile-tip { display: block; }
+
+/* ── No-profile footer warning ── */
+.no-profile-warning {
+    display: none;
+    font-size: 0.75rem;
+    color: #ef5350;
+    font-family: 'Inter', sans-serif;
+}
+.no-profile-warning a { color: #ef5350; text-decoration: underline; }
+.no-profile-warning.show { display: block; }
+
+/* ── Device list container ── */
+.device-list-wrap {
+    border: 1px solid #222;
+    border-radius: 10px;
+    overflow: hidden;
+    background: #141414;
+}
+
+#reachRecheck { margin-left: auto; }
+.device-list-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0.85rem;
+    border-bottom: 1px solid #1e1e1e;
+    background: #111;
+}
+.device-search {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #aaa;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.8rem;
+}
+.device-search::placeholder { color: var(--nr-text-muted); }
+
+.device-group-head {
+    margin: 0;
+    padding: 0.7rem 1rem 0.35rem;
+}
+.device-group + .device-group .device-group-head { border-top: 1px solid #1a1a1a; }
+.device-list-body {
+    max-height: 420px;
+    overflow-y: auto;
+}
+.device-list-body::-webkit-scrollbar { width: 4px; }
+.device-list-body::-webkit-scrollbar-track { background: transparent; }
+.device-list-body::-webkit-scrollbar-thumb { background: #222; border-radius: 2px; }
+
+.device-list-footer {
+    padding: 0.5rem 0.85rem;
+    border-top: 1px solid #1a1a1a;
+    background: #0f0f0f;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6875rem;
+    color: var(--nr-text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.platform-summary { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.platform-pill {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6875rem;
+    color: #00bcd4;
+    background: rgba(0,188,212,0.06);
+    border: 1px solid rgba(0,188,212,0.15);
+    border-radius: 3px;
+    padding: 0.1rem 0.4rem;
+}
+
+/* ── Empty state ── */
+.empty-state {
+    padding: 3rem 1rem;
+    text-align: center;
+    color: var(--nr-text-muted);
+    font-family: 'Inter', sans-serif;
+    font-size: 0.83rem;
+}
+.empty-state > i { font-size: 2rem; margin-bottom: 0.75rem; display: block; color: var(--nr-text-faint); }
+
+/* ── Multi-platform warning ── */
+.mp-warning {
+    display: none;
+    background: rgba(255,224,130,0.05);
+    border: 1px solid rgba(255,224,130,0.18);
+    border-radius: 8px;
+    padding: 0.75rem 1rem;
+    margin-bottom: 1rem;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.8rem;
+    color: #ffe082;
+    gap: 0.6rem;
+}
+.mp-warning.show { display: flex; align-items: flex-start; }
+.mp-warning i { font-size: 0.9rem; flex-shrink: 0; margin-top: 1px; }
+
+/* ── Command section ── */
+.cmd-section {
+    background: #141414;
+    border: 1px solid #222;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 1rem;
+}
+.cmd-section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid #1e1e1e;
+    background: #111;
+}
+.cmd-platform-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6875rem;
+    color: #00bcd4;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+}
+.cmd-load-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.75rem;
+    padding: 0.22rem 0.6rem;
+    margin: 0;
+    border-radius: 5px;
+    border: 1px solid #222;
+    color: var(--nr-text-muted);
+    cursor: pointer;
+    transition: border-color 0.15s, color 0.15s;
+}
+.cmd-load-btn:hover { border-color: rgba(0,188,212,0.3); color: #00bcd4; }
+
+.cmd-textarea {
+    width: 100%;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: #ccc;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    line-height: 1.6;
+    padding: 0.85rem 1rem;
+    resize: vertical;
+    min-height: 120px;
+}
+.cmd-textarea::placeholder { color: var(--nr-text-muted); }
+
+/* what a loaded file put in the box (or why it couldn't) */
+.cmd-loaded {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.72rem;
+    color: #4caf50;
+    padding: 0 1rem 0.7rem;
+}
+.cmd-loaded.is-error { color: #ef5350; }
+
+/* ── Options row ── */
+.options-row {
+    display: flex;
+    gap: 1.5rem;
+    padding: 0.75rem 0;
+}
+.option-check {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 0.5rem;
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.8rem;
+    color: var(--nr-text-muted);
+    transition: color 0.15s;
+}
+.option-check:hover { color: #aaa; }
+.option-check input { accent-color: #00bcd4; cursor: pointer; }
+.option-check .tooltip-q {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6875rem;
+    color: var(--nr-text-muted);
+    border: 1px solid #2a2a2a;
+    border-radius: 50%;
+    width: 14px;
+    height: 14px;
+    min-width: 14px;
+    min-height: 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: help;
+    flex-shrink: 0;
+    align-self: center;
+    position: relative;
+}
+.option-check .tooltip-q .tip-text {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 7px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: 260px;
+    background: #1a1a1a;
+    border: 1px solid #2a2a2a;
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.75rem;
+    color: #888;
+    white-space: normal;
+    pointer-events: none;
+    z-index: 100;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+.option-check .tooltip-q:hover .tip-text { display: block; }
+
+/* ── Slide-in animation for new command blocks ── */
+@keyframes slideDown {
+    from { opacity: 0; transform: translateY(-8px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+.cmd-section { animation: slideDown 0.2s ease; }
+
+/* ── Section panel ── */
+.nr-panel {
+    background: #1a1a1a;
+    border: 1px solid #222;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(0,188,212,0.06), 0 16px 48px rgba(0,0,0,0.4);
+}
+/* Panels whose content is padded away from the rounded corners can let
+   popovers (the Verify "?" tooltip) escape instead of clipping them */
+.nr-panel.nr-panel--open { overflow: visible; }
+.nr-panel-header {
+    padding: 1rem 1.25rem 0.75rem;
+    border-bottom: 1px solid #1e1e1e;
+}
+.nr-panel-body { padding: 1.25rem; }
+
+/* A platform's commands missing (commandsError) */
+.cb-error {
+    margin-top: 0.6rem; padding: 0.5rem 0.7rem; border-radius: 6px; font-size: 0.82rem;
+    background: rgba(239,83,80,0.08); border: 1px solid rgba(239,83,80,0.35); color: #f2b8b5;
+}
+
