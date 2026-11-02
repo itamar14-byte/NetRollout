@@ -1,0 +1,7 @@
+/* The access status - see templates/_access_status.html, which loads it. */
+  .access-status { font-family: 'JetBrains Mono', monospace; font-size: 0.76rem; line-height: 1.7;
+                   background: #151515; border: 1px solid #242424; border-radius: 8px;
+                   padding: 0.6rem 0.85rem; margin-top: 0.75rem; }
+  .access-status .k { color: var(--nr-text-muted); display: inline-block; min-width: 7.5rem; }
+  .access-status .ok { color: #81c784; } .access-status .fail { color: #ef9a9a; }
+  .access-status .warn { color: #ffcc80; } .access-status .dim { color: var(--nr-text-muted); }
