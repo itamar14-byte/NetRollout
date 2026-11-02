@@ -1,10 +1,9 @@
-{# The QueryBuilder's look (jQuery QueryBuilder, as Analytics and Admin
+/* The QueryBuilder's look (jQuery QueryBuilder, as Analytics and Admin
    Analytics lay it out: one rule per row, AND/OR as a pill between rules),
-   in the page's accent: rgb ("r,g,b") and color, and the alphas that
-   differ per page - line (a nested group's left line), soft (the add
-   buttons, a field's focus ring), hover (an add button), pill_hover. #}
-{% macro querybuilder_style(rgb, color, line, soft, hover, pill_hover) %}
-<style>
+   in the page's accent - custom properties the page sets (querybuilder-*.css):
+   --qb-rgb ("r,g,b") and --qb-color, and the alphas that differ per page -
+   --qb-line (a nested group's left line), --qb-soft (the add buttons, a
+   field's focus ring), --qb-hover (an add button), --qb-pill-hover. */
 
 /* ── QueryBuilder - linear row layout ───────────────────── */
 .query-builder { font-family: 'Inter', sans-serif; }
@@ -16,7 +15,7 @@
   border-radius: 0; padding: 0; margin: 0; box-shadow: none;
 }
 .query-builder .rules-list > .rules-group-container {
-  border-left: 2px solid rgba({{ rgb }},{{ line }});
+  border-left: 2px solid rgba(var(--qb-rgb),var(--qb-line));
   padding-left: 16px; padding-top: 4px;
 }
 /* Group header: action buttons only, flush right */
@@ -33,9 +32,9 @@
   font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 3px; cursor: pointer;
 }
 .query-builder .group-actions .btn-success {
-  background: rgba({{ rgb }},{{ soft }}); border: 1px solid rgba({{ rgb }},0.2); color: {{ color }};
+  background: rgba(var(--qb-rgb),var(--qb-soft)); border: 1px solid rgba(var(--qb-rgb),0.2); color: var(--qb-color);
 }
-.query-builder .group-actions .btn-success:hover { background: rgba({{ rgb }},{{ hover }}); }
+.query-builder .group-actions .btn-success:hover { background: rgba(var(--qb-rgb),var(--qb-hover)); }
 .query-builder .group-actions .btn-danger,
 .query-builder .rule-actions .btn-danger {
   background: transparent !important; border: 1px solid rgba(239,83,80,0.2) !important; color: var(--nr-text-muted) !important;
@@ -53,7 +52,7 @@
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
   transition: border-color 0.15s;
 }
-.query-builder .rule-container:hover { border-color: rgba({{ rgb }},0.18); }
+.query-builder .rule-container:hover { border-color: rgba(var(--qb-rgb),0.18); }
 .query-builder .rule-filter-container,
 .query-builder .rule-operator-container,
 .query-builder .rule-value-container { display: inline-flex; align-items: center; margin: 0; }
@@ -69,12 +68,12 @@
 .nr-qb-pill {
   font-family: 'JetBrains Mono', monospace; font-size: 0.6875rem;
   letter-spacing: 1.5px; text-transform: uppercase;
-  color: {{ color }}; background: rgba({{ rgb }},0.06);
-  border: 1px solid rgba({{ rgb }},0.25); border-radius: 4px;
+  color: var(--qb-color); background: rgba(var(--qb-rgb),0.06);
+  border: 1px solid rgba(var(--qb-rgb),0.25); border-radius: 4px;
   padding: 0.18rem 0.7rem; cursor: pointer; line-height: 1.7;
   transition: background 0.15s, border-color 0.15s;
 }
-.nr-qb-pill:hover { background: rgba({{ rgb }},{{ pill_hover }}); border-color: rgba({{ rgb }},0.45); }
+.nr-qb-pill:hover { background: rgba(var(--qb-rgb),var(--qb-pill-hover)); border-color: rgba(var(--qb-rgb),0.45); }
 
 /* Selects - custom arrow, no browser chrome */
 .query-builder select {
@@ -90,8 +89,8 @@
   cursor: pointer !important; transition: border-color 0.15s !important;
 }
 .query-builder select:focus {
-  outline: none !important; border-color: rgba({{ rgb }},0.4) !important;
-  box-shadow: 0 0 0 2px rgba({{ rgb }},{{ soft }}) !important;
+  outline: none !important; border-color: rgba(var(--qb-rgb),0.4) !important;
+  box-shadow: 0 0 0 2px rgba(var(--qb-rgb),var(--qb-soft)) !important;
 }
 .query-builder input[type="text"],
 .query-builder input[type="number"],
@@ -103,12 +102,9 @@
   padding: 0.3rem 0.65rem !important; transition: border-color 0.15s !important;
 }
 .query-builder input:focus {
-  outline: none !important; border-color: rgba({{ rgb }},0.4) !important;
-  box-shadow: 0 0 0 2px rgba({{ rgb }},{{ soft }}) !important;
+  outline: none !important; border-color: rgba(var(--qb-rgb),0.4) !important;
+  box-shadow: 0 0 0 2px rgba(var(--qb-rgb),var(--qb-soft)) !important;
 }
 .query-builder .has-error select,
 .query-builder .has-error input { border-color: rgba(239,83,80,0.5) !important; }
 .query-builder .error-container { color: #ef9a9a; font-size: 0.75rem; margin-top: 3px; }
-
-</style>
-{% endmacro %}

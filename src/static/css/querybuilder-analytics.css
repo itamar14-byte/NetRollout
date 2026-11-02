@@ -1,0 +1,3 @@
+/* Analytics's QueryBuilder accent (css/querybuilder.css) */
+:root { --qb-rgb: 0,188,212; --qb-color: #00bcd4; --qb-line: 0.2; --qb-soft: 0.07;
+        --qb-hover: 0.14; --qb-pill-hover: 0.13; }

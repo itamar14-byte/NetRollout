@@ -239,8 +239,8 @@
 {% block extra_script %}
 <script src="https://cdn.jsdelivr.net/npm/jQuery-QueryBuilder@2.6.0/dist/js/query-builder.standalone.min.js"></script>
 
-{% from "_querybuilder_style.html" import querybuilder_style %}
-{{ querybuilder_style(rgb="255,224,130", color="#ffe082", line="0.18", soft="0.06", hover="0.12", pill_hover="0.12") }}
+<link rel="stylesheet" href="{{ asset('css/querybuilder.css') }}">
+<link rel="stylesheet" href="{{ asset('css/querybuilder-admin.css') }}">
 
 <script>
 let lastResults = [];

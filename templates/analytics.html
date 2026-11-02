@@ -237,8 +237,8 @@
 {% block extra_script %}
 <script src="https://cdn.jsdelivr.net/npm/jQuery-QueryBuilder@2.6.0/dist/js/query-builder.standalone.min.js"></script>
 
-{% from "_querybuilder_style.html" import querybuilder_style %}
-{{ querybuilder_style(rgb="0,188,212", color="#00bcd4", line="0.2", soft="0.07", hover="0.14", pill_hover="0.13") }}
+<link rel="stylesheet" href="{{ asset('css/querybuilder.css') }}">
+<link rel="stylesheet" href="{{ asset('css/querybuilder-analytics.css') }}">
 
 <script>
 const SCOPE_USER   = {{ selected_user | tojson }};
