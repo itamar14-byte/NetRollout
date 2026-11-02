@@ -1,7 +1,7 @@
-{# The theme rules base.html and operator_base.html share and admin.html
+/* The theme rules base.html and operator_base.html share and admin.html
    writes its own way (cards, the primary / success buttons, disabled and
    invalid fields, the password fields' error line). Included right after
-   static/css/theme-core.css. #}
+   static/css/theme-core.css. */
         .lead { color: #bbb !important; }
 
         /* ── Accent card ── */
