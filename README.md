@@ -112,6 +112,7 @@ netrollout-cli-<version>.exe -d devices.csv -c commands.txt -vf
 - **Windows:** Windows 10 or 11, 64-bit (not Windows Server), with virtualization turned on. Docker Desktop is installed by Setup if it is missing.
 - **Linux:** a 64-bit (x86-64) server with Docker Engine and the Docker Compose plugin.
 - **Network:** HTTPS to the NetRollout server (port 443 by default; you can choose another), and SSH from the server to your devices.
+- **Internet:** only to install and upgrade (Docker, the images, new releases). The web app itself needs none: its scripts, styles, fonts and logos come from the server, so it works in an isolated network.
 - **CLI:** Windows for the `.exe`; any OS with Python 3.12 for `python -m src.cli`.
 
 The full list, including virtual machines and firewalls, is in the [installation guide](docs/install.md#requirements).

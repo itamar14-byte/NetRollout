@@ -28,6 +28,8 @@ NetRollout runs as a set of Docker containers: the app, nginx in front of it, Po
 - Docker Desktop. If it is missing, Setup installs it (through `winget`, or Docker's own installer if `winget` fails). Docker Desktop's installer asks for administrator rights and may ask you to restart Windows.
 - Internet access during install and upgrade, to download Docker Desktop, the images and new releases.
 
+Once installed, NetRollout needs no internet access: the web app's scripts, styles, fonts and logos are served by NetRollout itself, so browsers in an isolated network show it whole. Only upgrades reach out (GitHub for releases, Docker Hub for images - or your own mirror, see the [admin guide](admin-guide.md#upgrading-from-an-internal-mirror)).
+
 NetRollout itself installs per user, without an administrator prompt.
 
 ### Linux
