@@ -188,85 +188,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-<script>
-    // ── Sidebar toggle ──
-    const sidebar  = document.getElementById("opSidebar");
-    const toggle   = document.getElementById("sbToggle");
-
-    // on a phone it slides in over the page, opened from the topbar's ☰, and
-    // isn't remembered (it would cover the next page)
-    const phone = window.matchMedia("(max-width: 767.98px)");
-
-    function expandSidebar()  { sidebar.classList.add("expanded"); }
-    function collapseSidebar(){ sidebar.classList.remove("expanded"); }
-    function toggleSidebar()  { sidebar.classList.toggle("expanded"); saveSidebarState(); }
-
-    function saveSidebarState() {
-        if (phone.matches) return;
-        try { localStorage.setItem("opSidebarExpanded", sidebar.classList.contains("expanded")); } catch (e) { /* none */ }
-    }
-
-    // Restore state on load
-    try {
-        if (!phone.matches && localStorage.getItem("opSidebarExpanded") === "true") expandSidebar();
-    } catch (e) { /* none */ }
-
-    // the ☰ buttons say whether the sidebar is open, however it was opened
-    nrSyncExpanded(sidebar, [toggle, document.getElementById("phoneMenu")]);
-
-    document.getElementById("phoneMenu").addEventListener("click", function(e) {
-        e.stopPropagation();
-        expandSidebar();
-    });
-
-    toggle.addEventListener("click", function(e) {
-        e.stopPropagation();
-        toggleSidebar();
-    });
-
-    // Click on collapsed sidebar body to expand
-    sidebar.addEventListener("click", function(e) {
-        if (!sidebar.classList.contains("expanded") && !e.target.closest(".sb-toggle")) {
-            expandSidebar();
-            saveSidebarState();
-        }
-    });
-
-    // Click outside to collapse
-    document.addEventListener("click", function(e) {
-        if (sidebar.classList.contains("expanded") && !sidebar.contains(e.target)) {
-            collapseSidebar();
-            saveSidebarState();
-        }
-    });
-</script>
-
-<script>
-// Suppress browser validation tooltips - shake invalid fields on submit instead
-document.addEventListener('DOMContentLoaded', () => {
-    // Mark selects as touched on first interaction so CSS error styling activates
-    document.querySelectorAll('select.form-select[required]').forEach(sel => {
-        sel.addEventListener('change', () => sel.classList.add('nr-touched'));
-    });
-
-    document.querySelectorAll('form[novalidate]').forEach(form => {
-        form.addEventListener('submit', e => {
-            if (!form.checkValidity()) {
-                e.preventDefault();
-                form.querySelectorAll(':invalid').forEach(field => {
-                    // Stamp touched/submitted so CSS error state activates
-                    field.classList.add('nr-touched', 'nr-submitted');
-                    field.style.animation = 'none';
-                    void field.offsetHeight; // force reflow to restart animation
-                    field.style.animation = 'shake 0.4s ease';
-                    field.addEventListener('animationend',
-                        () => { field.style.animation = ''; }, { once: true });
-                });
-            }
-        });
-    });
-});
-</script>
+<script src="{{ asset('js/operator-base.js') }}"></script>
 
 {% block extra_script %}{% endblock %}
 
@@ -274,10 +196,7 @@ document.addEventListener('DOMContentLoaded', () => {
 {% with restart_btn='sbRestartBtn', restart_icon='sb-icon', restart_label='.sb-label' %}{% include '_restart_script.html' %}{% endwith %}
 {% endif %}
 
-<style>
-@keyframes spin { to { transform: rotate(360deg); } }
-.spin { display: inline-block; animation: spin 0.8s linear infinite; }
-</style>
+<link rel="stylesheet" href="{{ asset('css/spin.css') }}">
 
 
 {% include '_password_eye.html' %}
