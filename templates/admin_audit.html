@@ -128,7 +128,7 @@
             </td>
 
             <td class="gear-cell">
-              <button class="gear-btn" onclick="openGear(event, this)" title="Actions">&#9881;</button>
+              <button class="gear-btn" data-nr-click="openGear" title="Actions">&#9881;</button>
             </td>
 
           </tr>
@@ -150,13 +150,13 @@
 <div id="gearPopover" style="display:none; position:fixed; z-index:9999;
      background:#1a1a1a; border:1px solid #2a2a2a; border-radius:6px;
      box-shadow:0 4px 20px rgba(0,0,0,0.5); min-width:140px; overflow:hidden;">
-  <button class="gear-menu-item" onclick="viewDetail()">
+  <button class="gear-menu-item" data-nr-click="viewDetail">
     <i class="bi bi-file-text me-2"></i>View Detail
   </button>
-  <button class="gear-menu-item" onclick="copyRow()">
+  <button class="gear-menu-item" data-nr-click="copyRow">
     <i class="bi bi-clipboard me-2"></i>Copy Row
   </button>
-  <button class="gear-menu-item" onclick="filterByActor()">
+  <button class="gear-menu-item" data-nr-click="filterByActor">
     <i class="bi bi-person me-2"></i>Filter by Actor
   </button>
 </div>

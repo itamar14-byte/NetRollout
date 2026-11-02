@@ -81,3 +81,11 @@
     document.querySelector('input[name="actor"]').value = actor;
     document.getElementById('filterForm').submit();
   }
+
+// What this page's elements name in data-nr-<event> (js/events.js)
+nrHandlers({
+    openGear: (el, e) => { openGear(e, el); },
+    viewDetail: () => { viewDetail(); },
+    copyRow: () => { copyRow(); },
+    filterByActor: () => { filterByActor(); },
+});
