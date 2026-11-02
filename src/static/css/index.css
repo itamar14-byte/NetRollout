@@ -1,5 +1,5 @@
 /* The sign-in page - see templates/index.html. */
-  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;500;600&display=swap');
+  @import url('../vendor/fonts/fonts-300-600.css');
 
   .login-bg-grid {
     position: fixed;
