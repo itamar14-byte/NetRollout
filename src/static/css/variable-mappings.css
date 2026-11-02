@@ -1,0 +1,127 @@
+/* Variable Mappings - see templates/variable_mappings.html. */
+/* ── Mapping card ── */
+.mapping-card {
+    position: relative;
+    background: #1a1a1a;
+    border: 1px solid #222;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(0,188,212,0.08), 0 16px 48px rgba(0,0,0,0.4);
+    transition: box-shadow 0.25s, border-color 0.25s;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+.mapping-card:hover {
+    box-shadow: 0 0 0 1px rgba(0,188,212,0.18), 0 20px 60px rgba(0,0,0,0.5);
+    border-color: #2a2a2a;
+}
+.mapping-card-body {
+    padding: 1.5rem 1.5rem 1rem;
+    flex: 1;
+}
+.mapping-card-footer {
+    padding: 0.75rem 1.5rem;
+    border-top: 1px solid #1e1e1e;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(0,0,0,0.15);
+}
+
+/* Token display */
+.mapping-token {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1rem;
+    font-weight: 700;
+    color: #00bcd4;
+    letter-spacing: 0.5px;
+}
+.mapping-label-text {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.75rem;
+    color: var(--nr-text-muted);
+    margin-top: 0.1rem;
+}
+
+/* Attribute chip */
+.attr-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    background: rgba(0,188,212,0.05);
+    border: 1px solid rgba(0,188,212,0.12);
+    border-radius: 6px;
+    padding: 0.28rem 0.65rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    color: #55c9d8;
+}
+.attr-chip i { font-size: 0.82rem; color: #00bcd4; }
+
+.index-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    background: rgba(255,224,130,0.05);
+    border: 1px solid rgba(255,224,130,0.12);
+    border-radius: 5px;
+    padding: 0.2rem 0.5rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: #ffe082;
+    margin-left: 0.35rem;
+}
+
+/* Card action links */
+.card-action-link {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.75rem;
+    color: var(--nr-text-muted);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    transition: color 0.15s;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+}
+.card-action-link:hover { color: #00bcd4; }
+
+.btn-icon {
+    width: 28px; height: 28px;
+    border-radius: 6px;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-size: 0.78rem; cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    border: 1px solid transparent; background: transparent;
+}
+.btn-icon.edit   { color: var(--nr-text-faint); border-color: #1e1e1e; }
+.btn-icon.edit:hover   { color: #00bcd4; background: rgba(0,188,212,0.08); border-color: rgba(0,188,212,0.2); }
+.btn-icon.delete { color: var(--nr-text-faint); border-color: #1e1e1e; }
+.btn-icon.delete:hover { color: #ef5350; background: rgba(239,83,80,0.08); border-color: rgba(239,83,80,0.2); }
+
+/* Empty state */
+.empty-state { text-align: center; padding: 4rem 2rem; }
+.empty-state > i { font-size: 3rem; margin-bottom: 1rem; display: block; color: var(--nr-text-faint); }
+.empty-state p { font-size: 0.88rem; color: var(--nr-text-muted); margin-bottom: 1.5rem; }
+
+/* Token input group ($$...$$) */
+.token-addon {
+    background: #141414 !important;
+    border-color: #2a2a2a !important;
+    color: #00bcd4 !important;
+    font-family: 'JetBrains Mono', monospace !important;
+    font-size: 0.9rem !important;
+    font-weight: 700 !important;
+    letter-spacing: 1px !important;
+    padding: 0 0.65rem !important;
+    user-select: none;
+}
+
+/* Index field visibility */
+.index-field-wrap { display: none; }
+.index-field-wrap.visible { display: block; }
+
