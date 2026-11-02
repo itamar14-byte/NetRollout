@@ -1,0 +1,26 @@
+/* The 2FA code boxes - see templates/_otp_boxes.html, which loads it. */
+  .otp-box {
+    width: 44px !important;
+    height: 52px;
+    padding: 0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.35rem;
+    border-radius: 8px !important;
+    background-color: #161616 !important;
+    border-color: #252525 !important;
+    color: #00bcd4 !important;
+    text-align: center;
+  }
+  .otp-box:focus {
+    border-color: #00bcd4 !important;
+    box-shadow: 0 0 0 3px rgba(0,188,212,0.15) !important;
+    background-color: #1a1a1a !important;
+  }
+  @keyframes shake {
+    0%, 100% { transform: translateX(0); }
+    20%       { transform: translateX(-6px); }
+    40%       { transform: translateX(6px); }
+    60%       { transform: translateX(-4px); }
+    80%       { transform: translateX(4px); }
+  }
+  .shake { animation: shake 0.4s ease; }
