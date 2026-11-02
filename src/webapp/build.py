@@ -8,7 +8,7 @@ import secrets
 from collections.abc import Iterator, Mapping
 from typing import Any, ClassVar
 
-from flask import Flask, Request, Response
+from flask import Flask, Request, Response, url_for
 from flask.sessions import SessionMixin
 from flask_session.redis import RedisSessionInterface
 from prometheus_client.core import REGISTRY, GaugeMetricFamily
@@ -125,11 +125,21 @@ def resolve_secret_key(env: Mapping[str, str] | None = None) -> str:
 	return secrets.token_hex(32)
 
 
+def asset(filename: str) -> str:
+	"""A file of src/static/ as a page links it (the templates' asset()):
+	the URL carries the version, so after an update a browser never runs a
+	cached script of the old version against the new page.
+
+	:param filename: its path under src/static/ (js/inventory.js)
+	:returns: /static/<filename>?v=<VERSION>"""
+	return url_for("static", filename=filename, v=VERSION)
+
+
 def configure_app(app: Flask, secret_key: str) -> None:
 	"""Flask's settings: the secret, the session cookie (Secure, HttpOnly,
 	SameSite=Lax - the sessions live in Redis: launch_app's interface), the
 	proxy headers nginx sets, and the templates' globals (vendor logos,
-	version, source link, monitoring)."""
+	the static files' URLs, version, source link, monitoring)."""
 	app.config["SECRET_KEY"] = secret_key
 
 	app.config["SESSION_COOKIE_SECURE"] = True
@@ -139,6 +149,7 @@ def configure_app(app: Flask, secret_key: str) -> None:
 	# Flask's documented way to add WSGI middleware (mypy sees a method replaced)
 	app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)  # type: ignore[method-assign]
 	app.jinja_env.globals['VENDOR_LOGOS'] = VENDOR_LOGOS
+	app.jinja_env.globals['asset'] = asset           # {{ asset('js/x.js') }}
 	app.jinja_env.filters['endpoint'] = endpoint     # {{ ip | endpoint(port) }}
 	app.jinja_env.filters['audit_summary'] = audit_summary   # an audit row's detail in one line
 	app.jinja_env.globals['NR_VERSION'] = VERSION        # the footer
