@@ -18,6 +18,16 @@ def page_sources(*suffixes: str) -> list[Path]:
 	 the suffixes ('.js', '.css') outside its vendor/ folder"""
 	return sorted(TEMPLATES.glob("*.html")) + sorted(
 		p for p in STATIC.rglob("*") if p.suffix in suffixes and "vendor" not in p.relative_to(STATIC).parts)
+
+
+ASSET = re.compile(r"""asset\('([^']+)'\)""")
+
+
+def page_text(name: str) -> str:
+	""":returns: a page's own source - the template, then the scripts and
+	 styles in src/static it links ({{ asset('js/x.js') }})"""
+	text = (TEMPLATES / name).read_text(encoding="utf-8")
+	return text + "".join((STATIC / path).read_text(encoding="utf-8") for path in ASSET.findall(text))
 # a call of the browser's own (window.confirm( too), not nrConfirm( or x.confirm(
 NATIVE = re.compile(r"(?<![\w.$])(?:window\.)?(?:confirm|alert|prompt)\s*\(")
 JINJA_COMMENT = re.compile(r"\{#.*?#\}", re.S)
@@ -92,7 +102,7 @@ def test_enter_clicks_a_windows_main_button_but_never_a_red_one():
 	assert "!btn.classList.contains('btn-danger')" in handler
 	assert "t.closest('textarea, button, a, select, [contenteditable], .nr-select-panel')" in handler
 	assert "querySelectorAll('[data-nr-enter]')" in handler
-	inventory = (TEMPLATES / "inventory.html").read_text(encoding="utf-8")
+	inventory = page_text("inventory.html")
 	assert 'id="addTestBtn" class="btn btn-secondary btn-sm" data-nr-enter' in inventory
 
 
@@ -101,7 +111,7 @@ def test_server_management_cards_close_like_a_window():
 	closes on Escape or a click outside it - never from inside a window over
 	the page (Bootstrap closes that window on Escape first) - and its own
 	button closes it again."""
-	source = (TEMPLATES / "server_management.html").read_text(encoding="utf-8")
+	source = page_text("server_management.html")
 	closer = source[source.index("function closeOpenCards"):source.index("function expandServer")]
 	assert "e.target.closest('.modal')" in closer
 	assert "document.addEventListener('click'" in closer and "e.key === 'Escape'" in closer
@@ -113,7 +123,7 @@ def test_server_management_cards_close_like_a_window():
 def test_a_connection_tests_result_is_never_cut_off():
 	"""Add / Edit Device: the result takes its own line above the buttons and
 	wraps - it was cut at 240 px next to them ("unreachable on 19")."""
-	source = (TEMPLATES / "inventory.html").read_text(encoding="utf-8")
+	source = page_text("inventory.html")
 	style = source[source.index(".conn-status {"):source.index(".conn-status.conn-ok")]
 	assert "flex: 1 0 100%;" in style and "max-width" not in style and "ellipsis" not in style
 	for status in ("addTestStatus", "editTestStatus"):
@@ -139,7 +149,7 @@ def test_the_inventory_tooltip_shows_a_hostnames_address():
 	check's address, else the stored one (resolved_ip); by IP,
 	or a name that didn't resolve, the address alone; the line wraps rather
 	than cuts."""
-	source = (TEMPLATES / "inventory.html").read_text(encoding="utf-8")
+	source = page_text("inventory.html")
 	assert '"resolved_ip":           device.resolved_ip or "",' in source
 	assert "const live = REACH[device.id], resolved = (live && live.address) || device.resolved_ip;" in source
 	assert "resolved ? shown + ' (' + resolved + ')' : shown;" in source
@@ -155,14 +165,14 @@ def test_a_name_that_doesnt_resolve_says_so_where_reachability_shows():
 	widgets = (STATIC / "js" / "op-widgets.js").read_text(encoding="utf-8")
 	assert "return status && !status.reachable && status.unresolved ? \" (can't resolve)\" : '';" in widgets
 	assert "unknown: 'Reachability unknown'}[state] + nrReachWhy(status);" in widgets
-	assert "(reach.reachable ? 'Reachable' : 'Not reachable') + nrReachWhy(reach)" in 		(TEMPLATES / "inventory.html").read_text(encoding="utf-8")
-	assert '"Not reachable from NetRollout" + nrReachWhy(status)' in 		(TEMPLATES / "new_rollout.html").read_text(encoding="utf-8")
+	assert "(reach.reachable ? 'Reachable' : 'Not reachable') + nrReachWhy(reach)" in 		page_text("inventory.html")
+	assert '"Not reachable from NetRollout" + nrReachWhy(status)' in 		page_text("new_rollout.html")
 
 
 def test_the_inventory_filters_outlive_a_reload():
 	"""A save or delete reloads Inventory: the filters are kept for the tab
 	(sessionStorage), restored before the first apply, forgotten when empty."""
-	source = (TEMPLATES / "inventory.html").read_text(encoding="utf-8")
+	source = page_text("inventory.html")
 	assert "const KEPT = 'nr-inventory-filters';" in source
 	assert "if (f.name || f.ip || f.plats.length) sessionStorage.setItem(KEPT, JSON.stringify(f));" in source
 	assert "else sessionStorage.removeItem(KEPT);" in source
@@ -179,7 +189,7 @@ def test_the_assign_boards_search_narrows_both_columns_and_survives_moves():
 	assert "opts.search.value = '';" in widgets
 	assert "if (e.key === 'Escape' && opts.search.value) {" in widgets
 	for page in ("security.html", "variable_mappings.html"):
-		source = (TEMPLATES / page).read_text(encoding="utf-8")
+		source = page_text(page)
 		assert 'class="nr-board-search"' in source
 		assert "search:   document.querySelector('#devicesModal .nr-board-search')," in source
 
@@ -188,7 +198,7 @@ def test_the_inventory_platform_filter_takes_several_platforms():
 	"""The platform filter is a list of check boxes (it stays open while
 	ticking): a device shows when its platform is any of the ticked ones,
 	none ticked shows all; the button names one, else counts them."""
-	source = (TEMPLATES / "inventory.html").read_text(encoding="utf-8")
+	source = page_text("inventory.html")
 	assert 'data-bs-toggle="dropdown" data-bs-auto-close="outside"' in source
 	assert '<label class="dropdown-item"><input type="checkbox" class="form-check-input" value="{{ val }}"' in source
 	assert "&& (!chosen.length || chosen.includes(c.type));" in source
@@ -202,8 +212,8 @@ def test_a_vendor_logo_is_in_colour_only_while_its_device_is_reachable():
 	checked, unreachable or unknown; Arista's dark wordmark stays white in both
 	states. The logo URLs are used as given: Simple Icons' '/ffffff' suffix broke
 	the logos from other sources (Arista, Aruba, Check Point)."""
-	rollout = (TEMPLATES / "new_rollout.html").read_text(encoding="utf-8")
-	inventory = (TEMPLATES / "inventory.html").read_text(encoding="utf-8")
+	rollout = page_text("new_rollout.html")
+	inventory = page_text("inventory.html")
 	for page, logo, holder in ((rollout, ".device-logo", ".device-row"), (inventory, ".vendor-img", ".inv-card")):
 		rule = page[page.index(logo + " {"):]
 		rule = rule[:rule.index("}")]
