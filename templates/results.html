@@ -12,7 +12,7 @@
           data-mine-total="{{ mine.total }}" data-all-total="{{ mine.total + others.total }}" data-filter="{{ filter_word or '' }}">{{ mine.total }} {{ filter_word ~ ' ' if filter_word }}job{{ 's' if mine.total != 1 }}</span>
     {% if is_admin %}
     <div class="ms-auto">
-        <button id="allUsersToggle" class="job-action-btn" onclick="toggleAllUsers()"
+        <button id="allUsersToggle" class="job-action-btn" data-nr-click="toggleAllUsers"
                 style="border-color:#2a2a2a; color:var(--nr-text-muted);">
             <i class="bi bi-people me-1"></i>All Users
         </button>
@@ -87,19 +87,19 @@
      data-commands="{{ job.commands | tojson | forceescape }}"
      data-started-at="{{ job.started_at.isoformat() }}"
      data-comment="{{ job.comment | e if job.comment else '' }}"
-     onclick="toggleJob(this)">
+     data-nr-click="toggleJob">
     <div class="job-summary">
         <!-- Job ID + comment + optional owner -->
         <div>
             <input type="checkbox" class="nr-check diff-checkbox"
                    aria-label="Compare job {{ job.job_id[:8] }}"
                    data-nr-click="nrStop"
-                   onchange="handleDiffSelect(this)">
+                   data-nr-change="handleDiffSelect">
             <span style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:var(--nr-text-muted);"
                   title="{{ job.job_id }}">
                 {{ job.job_id[:8] }}…
             </span><button type="button"
-                    onclick="event.stopPropagation(); copyJobId(this, '{{ job.job_id }}')"
+                    data-nr-click="copyJobId" data-copy="{{ job.job_id }}"
                     style="background:none; border:none; padding:0 0 0 4px; color:var(--nr-text-muted);
                            cursor:pointer; font-size: 0.75rem; vertical-align:middle;
                            transition:color 0.15s;"
@@ -188,14 +188,14 @@
             {% if job.commands %}
             <button class="job-action-btn"
                     data-commands="{{ job.commands | tojson | forceescape }}"
-                    onclick="showCommands(JSON.parse(this.dataset.commands))">
+                    data-nr-click="showCommands">
                 <i class="bi bi-terminal"></i> See Commands
             </button>
             {% endif %}
             {% if job.has_log %}
             <button type="button" class="job-action-btn" data-job-id="{{ job.job_id }}"
                     data-download="{{ url_for('jobs.download_log', job_id=job.job_id) }}"
-                    onclick="showLog(this)">
+                    data-nr-click="showLog">
                 <i class="bi bi-journal-text"></i> View Log
             </button>
             <a class="job-action-btn"
@@ -210,7 +210,7 @@
             <button class="job-action-btn"
                     data-job-id="{{ job.job_id }}"
                     data-devices="{{ diff_device_data | tojson | forceescape }}"
-                    onclick="showConfigDiff(this)">
+                    data-nr-click="showConfigDiff">
                 <i class="bi bi-shield-check"></i> Verification
             </button>
             {% elif job.devices | selectattr('config_expired') | list %}
@@ -224,7 +224,7 @@
             {% if job.devices | selectattr('status', 'equalto', 'success') | first %}
             <button type="button" class="job-action-btn btn-rollback"
                     data-job-id="{{ job.job_id }}" data-rollback-job="{{ job.job_id }}"
-                    onclick="openRollback(this.dataset.jobId)">
+                    data-nr-click="openRollback">
                 <i class="bi bi-arrow-counterclockwise"></i> Rollback
             </button>
             {% endif %}
@@ -262,13 +262,13 @@
                             data-job-id="{{ job.job_id }}"
                             data-devices="{{ diff_device_data | tojson | forceescape }}"
                             data-ip="{{ d.ip }}" data-port="{{ d.port }}"
-                            onclick="showConfigDiff(this)">{{ d.status }}</button>{% else %}<span
+                            data-nr-click="showConfigDiff">{{ d.status }}</button>{% else %}<span
                             class="status-pill pill-{{ d.status | replace(' ', '-') }}">{{ d.status }}</span>{% endif %}{% if d.review %}<span
                             class="review-decided" title="{{ d.review.comment or '' }}">{{ d.review.outcome }} by {{ d.review.by }}</span>{% endif %}{% if d.replies %}<button
                             type="button" class="replied-note" title="What the device replied - not judged"
                             data-replies="{{ d.replies | tojson | forceescape }}"
                             data-device="{{ d.get('label', d.ip) }}" data-status="{{ d.status }}"
-                            onclick="showReplies(this)">replied {{ d.replies | length }}</button>{% endif %}{% if d.action_needed %}
+                            data-nr-click="showReplies">replied {{ d.replies | length }}</button>{% endif %}{% if d.action_needed %}
                         <i class="bi bi-exclamation-triangle-fill ms-1" style="color:#ffb74d;"
                            title="Action needed - see the box above"></i>{% endif %}</td>
                 </tr>
@@ -339,10 +339,10 @@
 <!-- Compare -->
 <div class="d-flex align-items-center gap-2 mb-3 flex-wrap">
     <div class="ms-auto d-flex gap-2 align-items-center">
-        <button id="diffModeBtn" class="filter-btn" onclick="toggleDiffMode()">
+        <button id="diffModeBtn" class="filter-btn" data-nr-click="toggleDiffMode">
             <i class="bi bi-file-diff me-1"></i>Compare
         </button>
-        <button id="compareBtn" class="job-action-btn" style="display:none;" onclick="runDiff()">
+        <button id="compareBtn" class="job-action-btn" style="display:none;" data-nr-click="runDiff">
             <i class="bi bi-layout-split me-1"></i>Diff
         </button>
     </div>
@@ -387,7 +387,7 @@
 <div id="split-view" style="display:none;">
 
     {# My Jobs section #}
-    <button type="button" class="section-divider open" aria-expanded="true" aria-controls="my-jobs-body" onclick="toggleSection(this, 'my-jobs-body')">
+    <button type="button" class="section-divider open" aria-expanded="true" aria-controls="my-jobs-body" data-nr-click="toggleSection" data-section="my-jobs-body">
         <i class="bi bi-chevron-down section-divider-chevron" aria-hidden="true"></i>
         <span class="section-divider-label">My Jobs</span>
         <span style="font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; color:var(--nr-text-muted);">
@@ -412,7 +412,7 @@
     </div>
 
     {# Other Users section #}
-    <button type="button" class="section-divider open" aria-expanded="true" aria-controls="other-jobs-body" onclick="toggleSection(this, 'other-jobs-body')">
+    <button type="button" class="section-divider open" aria-expanded="true" aria-controls="other-jobs-body" data-nr-click="toggleSection" data-section="other-jobs-body">
         <i class="bi bi-chevron-down section-divider-chevron" aria-hidden="true"></i>
         <span class="section-divider-label">Other Users</span>
         <span style="font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; color:var(--nr-text-muted);">

@@ -1583,7 +1583,7 @@ def test_results_offer_view_log_where_the_log_is(operator, client_for, session_s
 	add_result(session_scope, operator.user, without)
 	write_log(with_log, "x\n")
 	html = client_for(operator.user).get("/results").get_data(as_text=True)
-	assert html.count('onclick="showLog(this)"') == 1 and f'data-job-id="{with_log}"' in html
+	assert html.count('data-nr-click="showLog"') == 1 and f'data-job-id="{with_log}"' in html
 
 
 def _register_job_meta(app, user, job_id):

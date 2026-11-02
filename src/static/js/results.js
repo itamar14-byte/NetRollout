@@ -712,3 +712,18 @@ function runDiff() {
 }
 
 document.getElementById('diffModal').addEventListener('hidden.bs.modal', resetDiffSelection);
+
+// What this page's elements name in data-nr-<event> (js/events.js)
+nrHandlers({
+    toggleAllUsers: () => { toggleAllUsers(); },
+    toggleJob: el => { toggleJob(el); },
+    handleDiffSelect: el => { handleDiffSelect(el); },
+    copyJobId: (el, e) => { e.stopPropagation(); copyJobId(el, el.dataset.copy); },
+    showCommands: el => { showCommands(JSON.parse(el.dataset.commands)); },
+    showLog: el => { showLog(el); },
+    showConfigDiff: el => { showConfigDiff(el); },
+    showReplies: el => { showReplies(el); },
+    toggleDiffMode: () => { toggleDiffMode(); },
+    runDiff: () => { runDiff(); },
+    toggleSection: el => { toggleSection(el, el.dataset.section); },
+});
