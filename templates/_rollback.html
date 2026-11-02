@@ -1,7 +1,7 @@
 {# The rollback dialog, shared by Active Jobs (the completion card) and Results:
    openRollback(jobId) opens it for a finished job; Execute Rollback posts the
    commands to /rollout/rollback/<job> and goes to Active Jobs with the new job.
-   Pages open it with data-job-id + onclick="openRollback(this.dataset.jobId)". #}
+   Pages open it with data-job-id + data-nr-click="openRollback". #}
 <div class="modal fade" id="rollbackModal" tabindex="-1" data-bs-backdrop="static" aria-labelledby="rollbackTitle">
     <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content">
@@ -96,7 +96,7 @@
                 <button class="btn btn-sm" id="rollbackSubmitBtn"
                         style="background:rgba(255,224,130,0.1); border:1px solid rgba(255,224,130,0.3);
                                color:#ffe082; font-size:0.8rem;"
-                        onclick="submitRollback()">
+                        data-nr-click="submitRollback">
                     <i class="bi bi-arrow-counterclockwise me-1"></i>Execute Rollback
                 </button>
             </div>

@@ -21,7 +21,7 @@
                     <label class="nr-label">LABEL</label>
                     <input type="text" class="form-control form-control-sm" id="{{ prefix }}Label"
                            placeholder="e.g. BGP Peer IP" autocomplete="off"
-                           oninput="autoSlug('{{ prefix }}Label','{{ prefix }}Name')">
+                           data-nr-input="nrPropertySlug" data-slug-from="{{ prefix }}Label" data-slug-to="{{ prefix }}Name">
                 </div>
                 <div class="mb-3">
                     <label class="nr-label">NAME <span class="nr-label-hint">(auto-generated · immutable after creation)</span></label>
@@ -37,7 +37,7 @@
                         </span>
                         <input type="text" class="form-control form-control-sm" id="{{ prefix }}Icon"
                                value="bi-tag" placeholder="bi-tag" autocomplete="off"
-                               oninput="document.getElementById('{{ prefix }}IconPreview').className='bi ' + this.value">
+                               data-nr-input="nrIconPreview" data-preview="{{ prefix }}IconPreview">
                     </div>
                     <a href="https://icons.getbootstrap.com" target="_blank" rel="noopener"
                        style="font-size: 0.75rem; color:var(--nr-text-muted); text-decoration:none;"

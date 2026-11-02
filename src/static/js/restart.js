@@ -121,6 +121,13 @@ async function nrInstanceToken() {
     } catch (e) { return null; }
 }
 
+// the sidebar button starts Restart (an onclick property: nrSetRestartButton
+// takes it away while restarting)
+(() => {
+    const btn = document.getElementById(NR_RESTART_BUTTON.btn);
+    if (btn) btn.onclick = nrRestartClick;
+})();
+
 function nrSetRestartButton(restarting) {
     const btn = document.getElementById(NR_RESTART_BUTTON.btn);
     if (!btn) return;
@@ -166,3 +173,8 @@ async function nrFireRestart(mode) {
         if (now && now !== before) { clearInterval(poll); window.location.replace('/'); }
     }, 1000);
 }
+
+// The Restart dialog's buttons (data-nr-click, js/events.js)
+nrHandlers({
+    doRestart: el => { doRestart(el.dataset.restartMode); },
+});

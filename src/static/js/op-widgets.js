@@ -118,7 +118,7 @@ function nrAssignBoard(root, opts) {
                     : !isIn && initial.has(d.id) ? ' is-removed' : '';
         const logo  = (opts.logos || {})[d.device_type];
         const icon  = logo
-            ? `<img alt="" src="${nrEscape(logo)}" onerror="this.replaceWith(Object.assign(document.createElement('i'),{className:'bi bi-router'}))">`
+            ? `<img alt="" src="${nrEscape(logo)}" data-nr-error="nrLogoIcon">`
             : '<i class="bi bi-router"></i>';
         const meta  = opts.meta ? opts.meta(d) : '';
         const warn  = opts.warn ? opts.warn(d, isIn) : null;
@@ -367,3 +367,12 @@ function initIconPicker(previewId, inputId) {
     input.oninput = () => { preview.className = 'bi ' + input.value; };
     document.addEventListener('click', () => panel.classList.remove('open'));
 }
+
+// What the shared widgets' elements name in data-nr-<event> (js/events.js)
+nrHandlers({
+    // a logo that doesn't load becomes the router icon
+    nrLogoIcon: el => { el.replaceWith(Object.assign(document.createElement('i'), {className: 'bi bi-router'})); },
+    // the new-property form: the name follows the label; the icon's preview its class
+    nrPropertySlug: el => { autoSlug(el.dataset.slugFrom, el.dataset.slugTo); },
+    nrIconPreview: el => { document.getElementById(el.dataset.preview).className = 'bi ' + el.value; },
+});

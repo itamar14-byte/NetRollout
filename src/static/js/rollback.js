@@ -95,3 +95,9 @@
         if (profiles.length) select.focus();
     }
 })();
+
+// The rollback window's buttons, and the pages' Rollback (data-nr-click, js/events.js)
+nrHandlers({
+    openRollback: el => { openRollback(el.dataset.jobId); },
+    submitRollback: () => { submitRollback(); },
+});
