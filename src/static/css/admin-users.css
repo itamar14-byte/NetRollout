@@ -1,0 +1,109 @@
+/* User Management - see templates/admin_users.html. */
+  /* Toolbar */
+  .admin-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+    background: #0f0f0f;
+    border: 1px solid #1a1a1a;
+    border-radius: 8px;
+    padding: 0.6rem 1rem;
+    flex-wrap: wrap;
+  }
+  .toolbar-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.6875rem;
+    color: var(--nr-text-muted);
+    letter-spacing: 1.5px;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .tb-divider {
+    width: 1px;
+    height: 20px;
+    background: #1e1e1e;
+    flex-shrink: 0;
+  }
+  .tip-wrap { display: inline-block; }
+
+  .tb-btn {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 20px;
+    padding: 0.22rem 0.75rem;
+    font-family: 'Inter', sans-serif;
+    font-size: 0.76rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform 0.15s, box-shadow 0.15s, opacity 0.15s;
+    white-space: nowrap;
+  }
+  .tb-btn:disabled { opacity: 0.2; cursor: not-allowed; transform: none !important; box-shadow: none !important; pointer-events: none; }
+  .tb-btn:not(:disabled):hover { transform: translateY(-1px); box-shadow: 0 3px 8px rgba(0,0,0,0.3); }
+
+  .approve-tb { background: rgba(40,167,69,0.15);  color: #a5d6a7; border: 1px solid rgba(40,167,69,0.25); }
+  .approve-tb:not(:disabled):hover  { background: rgba(40,167,69,0.25); }
+  .enable-tb  { background: rgba(0,188,212,0.12);  color: #80deea; border: 1px solid rgba(0,188,212,0.2); }
+  .enable-tb:not(:disabled):hover   { background: rgba(0,188,212,0.22); }
+  .disable-tb { background: rgba(253,126,20,0.15); color: #ffcc80; border: 1px solid rgba(253,126,20,0.25); }
+  .disable-tb:not(:disabled):hover  { background: rgba(253,126,20,0.25); }
+  .promote-tb { background: rgba(220,53,69,0.12);  color: #ef9a9a; border: 1px solid rgba(220,53,69,0.2); }
+  .promote-tb:not(:disabled):hover  { background: rgba(220,53,69,0.22); }
+  .demote-tb  { background: rgba(108,117,125,0.12); color: #aaa;  border: 1px solid rgba(108,117,125,0.2); }
+  .demote-tb:not(:disabled):hover   { background: rgba(108,117,125,0.22); }
+  .terminate-tb { background: rgba(255,152,0,0.12); color: #ffcc80; border: 1px solid rgba(255,152,0,0.25); }
+  .terminate-tb:not(:disabled):hover { background: rgba(255,152,0,0.25); }
+  .reset2fa-tb { background: rgba(0,188,212,0.1); color: #80deea; border: 1px solid rgba(0,188,212,0.25); }
+  .reset2fa-tb:not(:disabled):hover { background: rgba(0,188,212,0.2); }
+  .delete-tb  { background: rgba(183,28,28,0.12);  color: #ef9a9a; border: 1px solid rgba(183,28,28,0.2); }
+  .delete-tb:not(:disabled):hover   { background: rgba(183,28,28,0.25); }
+
+  /* Table */
+  .sortable { cursor: pointer; user-select: none; }
+  /* the header's button: what the keyboard reaches; looks like the header text */
+  .nr-sort-btn { background: none; border: 0; padding: 0; color: inherit; font: inherit;
+                 letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+  .sortable:hover { background-color: rgba(0,188,212,0.03); }
+  .sort-icon { font-size: 0.75rem; color: var(--nr-text-faint); margin-left: 0.2rem; }
+
+  /* Filter */
+  .filter-btn {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.75rem;
+    font-weight: 500;
+    background: transparent;
+    border: 1px solid #222;
+    color: var(--nr-text-muted);
+    border-radius: 20px;
+    padding: 0.22rem 0.75rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .filter-btn:hover { border-color: #333 !important; color: #888 !important; }
+  .filter-btn.active-filter {
+    background: rgba(0,188,212,0.1) !important;
+    border-color: rgba(0,188,212,0.3) !important;
+    color: #00bcd4 !important;
+  }
+
+  /* Row highlight on check */
+  tr.row-selected { background: rgba(0,188,212,0.04) !important; }
+
+  /* A directory account whose LDAP server was deleted (Reconnect) */
+  .no-directory-badge {
+    font-family:'JetBrains Mono',monospace; font-size:0.6875rem; font-weight:700; letter-spacing:1.5px;
+    color:#ffb74d; background:rgba(255,183,77,0.08); border:1px solid rgba(255,183,77,0.3);
+    border-radius:3px; padding:0.1rem 0.35rem; margin-left:0.3rem; cursor:help;
+  }
+  .reconnect-users { display:flex; flex-direction:column; gap:0.3rem; max-height:180px; overflow-y:auto; }
+  .reconnect-user {
+    display:flex; justify-content:space-between; gap:0.6rem; padding:0.35rem 0.6rem;
+    background:#111; border:1px solid #1e1e1e; border-radius:6px; font-size:0.82rem;
+  }
+  .reconnect-user .ru-name { font-family:'JetBrains Mono',monospace; color:#e0e0e0; font-weight:600; }
+  .reconnect-user .ru-role { color:var(--nr-text-muted); }
+  .reconnect-user .ru-role.is-admin { color:#ef9a9a; }
+  .reconnect-error {
+    margin-top:0.7rem; padding:0.5rem 0.7rem; border-radius:6px; font-size:0.82rem;
+    background:rgba(239,83,80,0.08); border:1px solid rgba(239,83,80,0.35); color:#f2b8b5;
+  }
