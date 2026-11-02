@@ -73,6 +73,15 @@ PG_ADMIN_URL = _pg_admin_url()
 TEST_DB = os.environ.get("TEST_PG_DBNAME", "rollout_test")
 TEST_DB_URL = PG_ADMIN_URL.rsplit("/", 1)[0] + "/" + TEST_DB
 TEST_PASSWORD = "Test-pass-1"
+# a script or stylesheet a page loads from NetRollout's own /static
+STATIC_ASSET = re.compile(r'(?:src|href)="(/static/[^"?]+\.(?:js|css))(?:\?[^"]*)?"')
+
+
+def with_assets(client, html: str) -> str:
+	"""A page as the browser runs it: its HTML, then the text of each script
+	and stylesheet it loads from /static (the pages' code lives there)."""
+	return "\n".join([html] + [client.get(path).get_data(as_text=True)
+	                           for path in STATIC_ASSET.findall(html)])
 
 
 def _app_redis_url() -> str:

@@ -245,9 +245,9 @@ def test_making_a_device_local_drops_the_other_users_values(world, client_for,
 
 
 def page_token_states(client):
-	"""The New Rollout page's token data (TOKEN_STATES, rendered with |tojson)."""
+	"""The New Rollout page's token data (TOKEN_STATES, handed over as JSON)."""
 	html = client.get("/rollout/new").get_data(as_text=True)
-	found = re.search(r"const TOKEN_STATES = (.*?);\s*$", html, re.M)
+	found = re.search(r'<script type="application/json" id="nr-token-states">(.*?)</script>', html, re.S)
 	assert found, "the page has no token data"
 	return json.loads(found.group(1))
 

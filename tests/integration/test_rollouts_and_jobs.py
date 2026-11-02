@@ -21,6 +21,7 @@ from src.db.tables import AuditLog, DeviceCredential, DeviceResult, Inventory, J
 from src.jobs import DeviceBusy, Draining, RolloutJob
 from src.results import EXPORT_COLUMNS, JOB_STATUSES, JobResults, job_status
 from src.accounts.users import Viewer
+from tests.integration.conftest import with_assets
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -96,7 +97,8 @@ def test_the_commands_box_loads_a_file_into_itself(operator, client_for):
 	"""New Rollout has no File mode: "Load from file…" puts a file's text in
 	the box (the browser decodes it as UTF-8, a BOM dropped, anything else
 	refused) - the form uploads nothing."""
-	html = client_for(operator.user).get("/rollout/new").get_data(as_text=True)
+	client = client_for(operator.user)
+	html = with_assets(client, client.get("/rollout/new").get_data(as_text=True))
 	assert "Load from file…" in html and 'new TextDecoder("utf-8", {fatal: true})' in html
 	assert 'enctype="multipart/form-data"' not in html and "commands_file" not in html
 
@@ -911,7 +913,7 @@ def test_an_unchanged_push_says_so_in_its_verification(operator, client_for, ses
 	client = client_for(operator.user)
 	resp = client.get(f"/results/config_diff/{job}/10.0.0.1")
 	assert resp.status_code == 200 and resp.json["diff"] == ""
-	page = client.get("/results").get_data(as_text=True)
+	page = with_assets(client, client.get("/results").get_data(as_text=True))
 	assert "if (data.diff === '')" in page and "Unchanged: the push added and removed nothing." in page
 
 
@@ -920,7 +922,8 @@ def test_the_verification_diff_marks_lines_that_arent_configuration(operator, cl
 	a block's closing "next") has no tag from the judge: the window marks it "not
 	configuration" - only where the job's tags were kept, never every line of an
 	older one."""
-	page = client_for(operator.user).get("/results").get_data(as_text=True)
+	client = client_for(operator.user)
+	page = with_assets(client, client.get("/results").get_data(as_text=True))
 	assert "} else if (data.diff_tags && kind !== 'same') {" in page
 	assert "row.classList.add('vf-skip');" in page and "'not configuration'" in page
 
@@ -931,7 +934,8 @@ def test_lines_the_device_rewrites_are_behind_one_switch(operator, client_for):
 	its own churn (re-encrypted passwords) - behind one switch, NetRollout's own
 	toggle; a push that changed only those says it changed no configuration
 	(IOS rewrites its comment on every push, so its diff is never empty)."""
-	page = client_for(operator.user).get("/results").get_data(as_text=True)
+	client = client_for(operator.user)
+	page = with_assets(client, client.get("/results").get_data(as_text=True))
 	assert "Unchanged: the push changed no configuration - only lines the device rewrites by itself." in page
 	assert "Show lines the device rewrites by itself" in page
 	assert "row.classList.add('vf-noise');" in page and "_el('span', 'nr-toggle')" in page
@@ -1076,7 +1080,7 @@ def test_results_admin_pages_other_users_apart(make_user, client_for,
 	assert html.count('class="job-row"') == 3 * 2 + 25  # own: flat + split
 	assert "Page 1 of 2" in html
 	assert 'href="/results?per_page=25&amp;view=all&amp;other_page=2"' in html
-	assert "toggleAllUsers();" in html  # opens on the all-users view
+	assert 'data-split-view="1"' in html  # opens on the all-users view
 	page2 = client.get("/results?per_page=25&view=all&other_page=2")\
 		.get_data(as_text=True)
 	assert page2.count('class="job-row"') == 3 * 2 + 5
@@ -1111,7 +1115,7 @@ def test_results_admin_job_link_lands_on_another_users_job(make_user,
 	client = client_for(admin)
 	html = client.get(f"/results?per_page=25&job={theirs[27]}")\
 		.get_data(as_text=True)
-	assert "toggleAllUsers();" in html  # opens on the all-users view
+	assert 'data-split-view="1"' in html  # opens on the all-users view
 	assert "Page 2 of 2" in html
 	assert f'data-job-id="{theirs[27]}"' in html
 	assert f'data-job-id="{theirs[0]}"' not in html
@@ -1121,7 +1125,7 @@ def test_results_admin_job_link_lands_on_another_users_job(make_user,
 	assert f'data-job-id="{theirs[27]}"' not in html
 	html = client.get(f"/results?per_page=25&job={uuid.uuid4()}")\
 		.get_data(as_text=True)
-	assert "toggleAllUsers();" not in html
+	assert 'data-split-view=""' in html
 	assert "Page 1 of 2" in html and "Page 2 of 2" not in html
 	assert f'data-job-id="{theirs[27]}"' not in html
 
@@ -1606,10 +1610,12 @@ def test_dashboard_active_rollout_card_names_its_job(app, operator, client_for,
 	job.get_device_count = lambda: 2
 	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
 	_register_job_meta(app, operator.user, job.job_id)
-	html = client_for(operator.user).get("/dashboard").get_data(as_text=True)
+	client = client_for(operator.user)
+	html = client.get("/dashboard").get_data(as_text=True)
 	assert f'<input type="hidden" name="job_id" value="{job.job_id}">' in html
 	assert f'{str(job.job_id)[:8]}…</div>' in html
-	assert 'const jobStart = new Date("2026-10-08T09:30:00");' in html
+	assert """data-job-start='"2026-10-08T09:30:00"'""" in html
+	assert "const jobStart = new Date(JSON.parse(DASHBOARD.jobStart));" in with_assets(client, html)
 
 
 def test_the_dashboard_card_offers_watch_live(app, operator, client_for, monkeypatch):
@@ -1624,7 +1630,7 @@ def test_the_dashboard_card_offers_watch_live(app, operator, client_for, monkeyp
 	dashboard = client.get("/dashboard").get_data(as_text=True)
 	assert f'<a class="watch-live" href="/active_jobs?watch={job.job_id}"' in dashboard
 	assert "Watch live" in dashboard and "bi-play-fill" in dashboard
-	active = client.get(f"/active_jobs?watch={job.job_id}").get_data(as_text=True)
+	active = with_assets(client, client.get(f"/active_jobs?watch={job.job_id}").get_data(as_text=True))
 	assert 'new URLSearchParams(window.location.search).get("watch")' in active
 	assert "toggleLog(watchBtn)" in active
 
@@ -1638,7 +1644,8 @@ def test_a_launched_rollout_lands_with_its_log_open(app, operator, client_for, m
 	job.get_device_count = lambda: 1
 	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
 	_register_job_meta(app, operator.user, job.job_id)
-	active = client_for(operator.user).get(f"/active_jobs?new={job.job_id}").get_data(as_text=True)
+	client = client_for(operator.user)
+	active = with_assets(client, client.get(f"/active_jobs?new={job.job_id}").get_data(as_text=True))
 	assert f'data-job-id="{job.job_id}"' in active
 	assert '|| new URLSearchParams(window.location.search).get("new");' in active
 	assert "toggleLog(watchBtn)" in active
@@ -1684,10 +1691,11 @@ def test_active_jobs_offers_rollback_only_once_the_job_finishes(
 	job.get_device_count = lambda: 1
 	monkeypatch.setitem(app.orchestrator._jobs, job.job_id, job)
 	_register_job_meta(app, operator.user, job.job_id)
-	html = client_for(operator.user).get("/active_jobs").get_data(as_text=True)
+	client = client_for(operator.user)
+	html = client.get("/active_jobs").get_data(as_text=True)
 	row = re.search(rf'data-job-id="{job.job_id}".*?</tr>', html, re.S).group(0)
 	assert "Rollback" not in row and "btn-rollback" not in html
-	assert 'class="btn btn-sm completion-rollback"' in html      # the completion card's
+	assert 'class="btn btn-sm completion-rollback"' in with_assets(client, html)   # the completion card's
 
 
 def test_active_jobs_survives_orphaned_job_meta(app, operator, client_for):

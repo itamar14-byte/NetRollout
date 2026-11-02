@@ -12,6 +12,7 @@ import redis as redis_lib
 from src.db.tables import DeviceResult
 from src.jobs import DRAINING_MESSAGE, Draining, RolloutRow
 from src.runtime import VERSION, drain_seconds
+from tests.integration.conftest import with_assets
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -172,7 +173,8 @@ def test_rollouts_is_admin_only(make_user, client_for, two_rollouts):
 def test_the_restart_dialog_lists_the_rollouts(admin, client_for):
 	"""Admin pages carry the Restart dialog's list (#restartRollouts) and the
 	shared table, which the database move's panel uses too."""
-	html = client_for(admin).get("/admin/server").data.decode()
+	client = client_for(admin)
+	html = with_assets(client, client.get("/admin/server").data.decode())
 	assert 'id="restartRollouts"' in html and "function nrRolloutsTable(" in html
 	assert "nrRolloutsTable($('mvRollouts'), m.rollouts)" in html
 

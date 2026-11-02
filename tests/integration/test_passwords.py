@@ -6,7 +6,7 @@ from werkzeug.security import check_password_hash
 
 from src.accounts.users import password_problem
 from src.db.tables import AuditLog, User
-from tests.integration.conftest import TEST_PASSWORD
+from tests.integration.conftest import TEST_PASSWORD, with_assets
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -360,7 +360,8 @@ def test_the_sign_in_eye_finds_its_field_by_id(client_for):
 	which a browser extension's injected element took: the click flipped that and
 	the password stayed masked (the rc2 test run; incognito, without extensions,
 	worked)."""
-	page = client_for().get("/").get_data(as_text=True)
+	client = client_for()
+	page = with_assets(client, client.get("/").get_data(as_text=True))
 	assert 'data-target="password"' in page
 	assert "document.getElementById(this.dataset.target)" in page
 	assert "previousElementSibling" not in page
