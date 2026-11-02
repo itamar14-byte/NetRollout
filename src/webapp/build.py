@@ -275,7 +275,7 @@ def launch_app(backend: BackendServices | None = None) -> NetRolloutApp:
 	register_server_state(app)
 
 	register_handlers(app, backend)
-	register_security_headers(app, "Content-Security-Policy-Report-Only")
+	register_security_headers(app)            # enforced; violations still reported
 
 	app.session_interface = _SafeRedisSessionInterface(
 		app,

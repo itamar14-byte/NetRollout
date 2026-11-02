@@ -101,7 +101,7 @@ def test_grafana_follows_role_and_status_changes(client_for, make_user,
 
 # ── The Content-Security-Policy ──────────────────────────────────────────────
 
-CSP_HEADER = "Content-Security-Policy-Report-Only"
+CSP_HEADER = "Content-Security-Policy"
 CSP_REPORT = {"csp-report": {"document-uri": "https://nr.corp/inventory", "violated-directive": "script-src-elem",
                              "blocked-uri": "inline", "source-file": "https://nr.corp/inventory", "line-number": 12}}
 
