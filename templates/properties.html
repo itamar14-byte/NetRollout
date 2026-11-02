@@ -13,7 +13,7 @@
         </p>
     </div>
     <button class="btn btn-primary btn-sm ms-3"
-            onclick="openAddProp()">
+            data-nr-click="openAddProp">
         <i class="bi bi-plus-lg me-1"></i>Add Property
     </button>
 </div>
@@ -60,7 +60,7 @@
                     data-nr-mouseleave="nrRest" data-nr-rest-style="border-color:#222; color:var(--nr-text-muted)"
                     data-id="{{ p.id }}" data-label="{{ p.label }}" data-icon="{{ p.icon }}"
                     data-is-list="{{ 'true' if p.is_list else 'false' }}"
-                    onclick="openEditProp(this.dataset.id, this.dataset.label, this.dataset.icon, this.dataset.isList === 'true')">
+                    data-nr-click="openEditProp">
                 <i class="bi bi-pencil"></i>
             </button>
             <button aria-label="Delete property" title="Delete property" class="btn btn-sm"
@@ -68,7 +68,7 @@
                     data-nr-mouseenter="nrHover" data-nr-hover-style="border-color:#ef5350; color:#ef5350"
                     data-nr-mouseleave="nrRest" data-nr-rest-style="border-color:#222; color:var(--nr-text-muted)"
                     data-id="{{ p.id }}" data-name="{{ p.name }}"
-                    onclick="deleteProp(this.dataset.id, this.dataset.name)">
+                    data-nr-click="deleteProp">
                 <i class="bi bi-trash"></i>
             </button>
         </div>
@@ -89,7 +89,7 @@
                        title="Add Property") %}
             <div class="modal-footer d-flex justify-content-end gap-2">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary btn-sm" onclick="submitAddProp()">
+                <button type="button" class="btn btn-primary btn-sm" data-nr-click="submitAddProp">
                     <i class="bi bi-plus me-1"></i>Add
                 </button>
             </div>
@@ -117,7 +117,7 @@
                         </span>
                         <input type="text" class="form-control form-control-sm" id="editPropIcon"
                                autocomplete="off"
-                               oninput="document.getElementById('editPropIconPreview').className='bi ' + this.value">
+                               data-nr-input="nrIconPreview" data-preview="editPropIconPreview">
                     </div>
                     <a href="https://icons.getbootstrap.com" target="_blank" rel="noopener"
                        style="font-size: 0.75rem; color:var(--nr-text-muted); text-decoration:none;"
@@ -135,7 +135,7 @@
             </div>
             <div class="modal-footer d-flex justify-content-end gap-2">
                 <button type="button" class="btn btn-secondary btn-sm" data-bs-dismiss="modal">Cancel</button>
-                <button type="button" class="btn btn-primary btn-sm" onclick="submitEditProp()">Save</button>
+                <button type="button" class="btn btn-primary btn-sm" data-nr-click="submitEditProp">Save</button>
             </div>
         </div>
     </div>

@@ -88,3 +88,12 @@ document.addEventListener('keydown', function(e) {
             bootstrap.Modal.getOrCreateInstance(el).hide();
     });
 });
+
+// What this page's elements name in data-nr-<event> (js/events.js)
+nrHandlers({
+    openAddProp: () => { openAddProp(); },
+    openEditProp: el => { openEditProp(el.dataset.id, el.dataset.label, el.dataset.icon, el.dataset.isList === 'true'); },
+    deleteProp: el => { deleteProp(el.dataset.id, el.dataset.name); },
+    submitAddProp: () => { submitAddProp(); },
+    submitEditProp: () => { submitEditProp(); },
+});
