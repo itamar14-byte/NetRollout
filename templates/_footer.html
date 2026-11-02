@@ -1,10 +1,12 @@
 {# The page footer: version + the source of this version (AGPL-3.0 §13).
    Included by base.html, operator_base.html and admin.html. #}
+<footer>
 <div class="nr-footer">
     NETROLLOUT V{{ NR_VERSION | upper }}{% if NR_CODENAME %} &nbsp;·&nbsp; <span title="This release's name">{{ NR_CODENAME | upper }}</span>{% endif %} &nbsp;·&nbsp; ITAMAR WEINSTEIN &nbsp;·&nbsp; © 2025
 </div>
 <div class="nr-footer" style="padding-top:0;">
     SOURCE AVAILABLE AT <a href="{{ NR_SOURCE_URL }}" target="_blank" rel="noopener"
-       style="color:var(--nr-accent-soft); text-decoration:none; letter-spacing:1px;">GITHUB REPO</a>
+       style="color:var(--nr-accent-soft); text-decoration:underline; text-decoration-color:rgba(79,163,173,0.45); text-underline-offset:3px; letter-spacing:1px;">GITHUB REPO</a>
     &nbsp;·&nbsp; LICENSED UNDER GNU AGPL V3
 </div>
+</footer>

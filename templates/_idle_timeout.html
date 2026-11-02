@@ -4,13 +4,14 @@
    minute ahead and, at the end, asks the server before leaving - another tab
    may have kept the session alive. #}
 {% if NR_IDLE_SECONDS is defined %}
-<div class="modal fade" id="idleModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+<div class="modal fade" id="idleModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false"
+     aria-labelledby="idleTitle" aria-describedby="idleText">
     <div class="modal-dialog modal-dialog-centered" style="max-width:380px;">
         <div class="modal-content">
             <div class="modal-body" style="text-align:center; padding:1.6rem 1.4rem 1.2rem;">
-                <i class="bi bi-hourglass-split" style="font-size:1.6rem; color:#ffb74d;"></i>
-                <p style="margin:0.7rem 0 0.2rem; color:#e0e0e0; font-size:0.95rem;">Still there?</p>
-                <p style="margin:0; color:var(--nr-text-muted); font-size:0.82rem;">
+                <i class="bi bi-hourglass-split" style="font-size:1.6rem; color:#ffb74d;" aria-hidden="true"></i>
+                <p id="idleTitle" style="margin:0.7rem 0 0.2rem; color:#e0e0e0; font-size:0.95rem;">Still there?</p>
+                <p id="idleText" style="margin:0; color:var(--nr-text-muted); font-size:0.82rem;">
                     You'll be signed out in <strong id="idleSecondsLeft" style="color:#ffb74d;">60</strong> s
                     for inactivity.
                 </p>
@@ -55,6 +56,9 @@
         if (!document.getElementById('idleModal').classList.contains('show')) modal.show();
     }
     function hideWarning() { if (modal) modal.hide(); }
+    // Bootstrap sets role="dialog" as it shows a modal: this one interrupts, so it's an alert
+    document.getElementById('idleModal').addEventListener('shown.bs.modal',
+        e => e.target.setAttribute('role', 'alertdialog'));
 
     document.getElementById('idleStayBtn').addEventListener('click', async () => {
         await ask(true); synced = false; hideWarning();

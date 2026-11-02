@@ -250,6 +250,7 @@ button.status-pill:hover { filter: brightness(1.2); }
     transition: transform 0.2s;
 }
 .job-row.expanded .chevron { transform: rotate(180deg); color: #00bcd4; }
+.job-toggle { background: none; border: 0; padding: 0; line-height: 1; cursor: pointer; }
 
 /* ── Comment badge ── */
 .comment-tag {
@@ -337,6 +338,8 @@ button.status-pill:hover { filter: brightness(1.2); }
     padding: 0.75rem 0 0.5rem;
     cursor: pointer;
     user-select: none;
+    /* a <button>: what the keyboard reaches; drawn as the divider */
+    width: 100%; background: none; border: 0; color: inherit; font: inherit; text-align: left;
     border-top: 1px solid #1e1e1e;
     margin-top: 1rem;
 }
@@ -428,7 +431,7 @@ button.status-pill:hover { filter: brightness(1.2); }
 {% block operator_content %}
 <div class="d-flex align-items-center flex-wrap gap-3 mb-4">
     <div class="nr-badge">RESULTS</div>
-    <h4 class="mb-0" style="font-weight:600;">Job History</h4>
+    <h2 class="h4 mb-0" style="font-weight:600;">Job History</h2>
     <span style="color:var(--nr-text-muted); font-size:0.85rem;" id="jobCountLabel"
           data-mine-total="{{ mine.total }}" data-all-total="{{ mine.total + others.total }}" data-filter="{{ filter_word or '' }}">{{ mine.total }} {{ filter_word ~ ' ' if filter_word }}job{{ 's' if mine.total != 1 }}</span>
     {% if is_admin %}
@@ -513,6 +516,7 @@ button.status-pill:hover { filter: brightness(1.2); }
         <!-- Job ID + comment + optional owner -->
         <div>
             <input type="checkbox" class="nr-check diff-checkbox"
+                   aria-label="Compare job {{ job.job_id[:8] }}"
                    onclick="event.stopPropagation();"
                    onchange="handleDiffSelect(this)">
             <span style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:var(--nr-text-muted);"
@@ -525,8 +529,9 @@ button.status-pill:hover { filter: brightness(1.2); }
                            transition:color 0.15s;"
                     title="Copy full job ID"
                     onmouseenter="this.style.color='#00bcd4'"
-                    onmouseleave="this.style.color='var(--nr-text-muted)'">
-                <i class="bi bi-copy"></i>
+                    onmouseleave="this.style.color='var(--nr-text-muted)'"
+                    aria-label="Copy full job ID">
+                <i class="bi bi-copy" aria-hidden="true"></i>
             </button>
             {% if show_owner %}
             <span class="owner-badge ms-2">{{ job.job_owner }}</span>
@@ -576,7 +581,10 @@ button.status-pill:hover { filter: brightness(1.2); }
                 </span>
                 {% endif %}
             </span>
-            <i class="bi bi-chevron-down chevron ms-2"></i>
+            {# the keyboard's way to open the job (the whole card is the mouse's); the
+               click reaches the card's toggleJob #}
+            <button type="button" class="job-toggle ms-2" aria-expanded="false"
+                    aria-label="Details of job {{ job.job_id[:8] }}"><i class="bi bi-chevron-down chevron" aria-hidden="true"></i></button>
         </div>
     </div>
 
@@ -803,13 +811,13 @@ button.status-pill:hover { filter: brightness(1.2); }
 <div id="split-view" style="display:none;">
 
     {# My Jobs section #}
-    <div class="section-divider open" onclick="toggleSection(this, 'my-jobs-body')">
-        <i class="bi bi-chevron-down section-divider-chevron"></i>
+    <button type="button" class="section-divider open" aria-expanded="true" aria-controls="my-jobs-body" onclick="toggleSection(this, 'my-jobs-body')">
+        <i class="bi bi-chevron-down section-divider-chevron" aria-hidden="true"></i>
         <span class="section-divider-label">My Jobs</span>
         <span style="font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; color:var(--nr-text-muted);">
             {{ mine.total }}
         </span>
-    </div>
+    </button>
     <div id="my-jobs-body">
         {% if jobs %}
         <div class="job-summary col-headers mb-1" style="padding: 4px 18px; cursor:default;">
@@ -828,13 +836,13 @@ button.status-pill:hover { filter: brightness(1.2); }
     </div>
 
     {# Other Users section #}
-    <div class="section-divider open" onclick="toggleSection(this, 'other-jobs-body')">
-        <i class="bi bi-chevron-down section-divider-chevron"></i>
+    <button type="button" class="section-divider open" aria-expanded="true" aria-controls="other-jobs-body" onclick="toggleSection(this, 'other-jobs-body')">
+        <i class="bi bi-chevron-down section-divider-chevron" aria-hidden="true"></i>
         <span class="section-divider-label">Other Users</span>
         <span style="font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; color:var(--nr-text-muted);">
             {{ others.total }}
         </span>
-    </div>
+    </button>
     <div id="other-jobs-body">
         {% if other_jobs %}
         <div class="job-summary col-headers mb-1" style="padding: 4px 18px; cursor:default;">
@@ -856,7 +864,7 @@ button.status-pill:hover { filter: brightness(1.2); }
 {% endif %}
 
 <!-- Diff modal -->
-<div class="modal fade" id="diffModal" tabindex="-1">
+<div class="modal fade" id="diffModal" tabindex="-1" aria-label="Configuration diff">
     <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header" style="border-bottom:1px solid #222;">
@@ -871,7 +879,7 @@ button.status-pill:hover { filter: brightness(1.2); }
                         <span id="diffRightLabel" style="font-family:'JetBrains Mono',monospace; font-size:0.78rem; color:#a5d6a7;"></span>
                     </div>
                 </div>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body" style="padding:0; max-height:70vh; overflow-y:auto;">
                 <!-- Column headers -->
@@ -933,14 +941,14 @@ button.status-pill:hover { filter: brightness(1.2); }
     </div>
 </div>
 
-<div class="modal fade" id="verifyDiffModal" tabindex="-1">
+<div class="modal fade" id="verifyDiffModal" tabindex="-1" aria-label="Verification">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header" style="border-bottom:1px solid #222; padding-bottom:0;">
                 <div class="d-flex flex-column w-100 gap-0">
                     <div class="d-flex align-items-center justify-content-between mb-2">
                         <div class="nr-badge">VERIFICATION</div>
-                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                     </div>
                     <!-- Tab bar -->
                     <div id="verifyDiffTabs" style="display:flex; gap:0; overflow-x:auto;"></div>
@@ -967,15 +975,15 @@ button.status-pill:hover { filter: brightness(1.2); }
 </div>
 
 <!-- Commands modal -->
-<div class="modal fade" id="commandsModal" tabindex="-1">
+<div class="modal fade" id="commandsModal" tabindex="-1" aria-labelledby="commandsModalTitle">
     <div class="modal-dialog modal-lg">
         <div class="modal-content">
             <div class="modal-header" style="border-bottom:1px solid #222;">
-                <h6 class="modal-title"
-                    style="font-family:'JetBrains Mono',monospace; color:#00bcd4;">
+                <h2 class="modal-title h6"
+                    style="font-family:'JetBrains Mono',monospace; color:#00bcd4;" id="commandsModalTitle">
                     Commands <span style="color:var(--nr-text-muted); font-weight:400; font-size:0.8rem;">(pre-substitution)</span>
-                </h6>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </h2>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <pre id="commandsModalBody" class="cmd-snippet"></pre>
@@ -1487,6 +1495,7 @@ function toggleAllUsers() {
 function toggleSection(header, bodyId) {
     const body = document.getElementById(bodyId);
     const open = header.classList.toggle('open');
+    header.setAttribute('aria-expanded', open ? 'true' : 'false');
     body.style.display = open ? '' : 'none';
 }
 
@@ -1499,7 +1508,12 @@ function toggleJob(row) {
         handleDiffSelect(box);
         return;
     }
-    row.classList.toggle('expanded');
+    setJobOpen(row, !row.classList.contains('expanded'));
+}
+
+function setJobOpen(row, open) {
+    row.classList.toggle('expanded', open);
+    row.querySelector('.job-toggle').setAttribute('aria-expanded', open ? 'true' : 'false');
 }
 
 function showCommands(commands) {
@@ -1519,7 +1533,7 @@ function showCommands(commands) {
     const row = [...document.querySelectorAll('.job-row')]
         .find(r => r.dataset.jobId === id && r.offsetParent !== null);
     if (!row) return;
-    row.classList.add('expanded');
+    setJobOpen(row, true);
     row.scrollIntoView({block: 'center'});
 })();
 

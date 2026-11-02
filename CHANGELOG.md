@@ -10,6 +10,10 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 - **NetRollout Manager greys Open NetRollout while NetRollout is stopped**: the button, the tray menu's item and the address link, with a hint to start it first. They opened a browser that couldn't connect.
 
+### Fixed
+
+- **The web app works with the keyboard and a screen reader** (WCAG 2.2 AA, checked page by page with axe-core). Restart server, opening a device in Inventory, a job in Results, the PostgreSQL / Redis cards, LDAP's bind type and server rows, the users table's sorting and the My Jobs / Other Users sections could only be clicked with a mouse; they now take Tab, Enter and Space. Every page has a "Skip to content" link, a main heading and landmarks; dialogs, close buttons, the 2FA code boxes, checkboxes and filters have names; expanders say whether they're open; reachability icons are announced. Text that was too faint to read (User Management's selection hint, the system properties, a few labels) now has enough contrast, and the show-password eye is a bigger target. Nothing else looks different.
+
 ## [1.1.2] - 2026-10-26
 
 Security hardening from GitHub's code scanning. An installed 1.1.x updates from NetRollout Manager (**Upgrade**) or Linux's `netrollout.sh upgrade`, keeping everything; a before-upgrade backup is made first. No database change.

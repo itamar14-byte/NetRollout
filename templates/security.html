@@ -145,7 +145,7 @@
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
     <div>
         <div class="nr-badge">SECURITY PROFILES</div>
-        <h4 class="mb-0" style="font-weight:600; font-size:1.15rem;">Credential Profiles</h4>
+        <h2 class="h4 mb-0" style="font-weight:600; font-size:1.15rem;">Credential Profiles</h2>
         <p class="mt-1 mb-0 nr-note">
             {{ profiles|length }} profile{{ "s" if profiles|length != 1 else "" }} configured
         </p>
@@ -252,15 +252,15 @@
 <!-- ══════════════════════════════════════
      ADD PROFILE MODAL
 ══════════════════════════════════════ -->
-<div class="modal fade" id="addModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+<div class="modal fade" id="addModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" aria-labelledby="addModalTitle">
     <div class="modal-dialog modal-dialog-centered" style="max-width:460px;">
         <div class="modal-content">
             <div class="modal-header">
                 <div>
                     <div class="nr-badge" style="margin-bottom:0.3rem;">NEW PROFILE</div>
-                    <h5 class="modal-title">Add Credential Profile</h5>
+                    <h2 class="modal-title h5" id="addModalTitle">Add Credential Profile</h2>
                 </div>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <form method="POST" action="{{ url_for('security.security_create') }}" novalidate>
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -316,15 +316,15 @@
 <!-- ══════════════════════════════════════
      EDIT PROFILE MODAL
 ══════════════════════════════════════ -->
-<div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+<div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" aria-labelledby="editModalTitle">
     <div class="modal-dialog modal-dialog-centered" style="max-width:460px;">
         <div class="modal-content">
             <div class="modal-header">
                 <div>
                     <div class="nr-badge" style="margin-bottom:0.3rem;">EDIT PROFILE</div>
-                    <h5 class="modal-title" id="editModalTitle">Edit Profile</h5>
+                    <h2 class="modal-title h5" id="editModalTitle">Edit Profile</h2>
                 </div>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <form method="POST" id="editForm" action="" novalidate>
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -396,13 +396,13 @@
 <!-- ══════════════════════════════════════
      ATTACHED DEVICES MODAL
 ══════════════════════════════════════ -->
-<div class="modal fade" id="devicesModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="devicesModal" tabindex="-1" aria-hidden="true" aria-labelledby="devicesModalTitle">
     <div class="modal-dialog modal-dialog-centered" style="max-width:780px;">
         <div class="modal-content">
             <div class="modal-header">
                 <div style="flex:1;">
                     <div class="nr-badge" style="margin-bottom:0.3rem;">ATTACHED DEVICES</div>
-                    <h5 class="modal-title" id="devicesModalTitle">Devices</h5>
+                    <h2 class="modal-title h5" id="devicesModalTitle">Devices</h2>
                 </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
@@ -446,15 +446,15 @@
 <!-- ══════════════════════════════════════
      TEST CONNECTION MODAL
 ══════════════════════════════════════ -->
-<div class="modal fade" id="testModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="testModal" tabindex="-1" aria-hidden="true" aria-labelledby="testModalTitle">
     <div class="modal-dialog modal-dialog-centered" style="max-width:460px;">
         <div class="modal-content">
             <div class="modal-header">
                 <div>
                     <div class="nr-badge" style="margin-bottom:0.3rem;">CONNECTION TEST</div>
-                    <h5 class="modal-title" id="testModalTitle">Test Profile</h5>
+                    <h2 class="modal-title h5" id="testModalTitle">Test Profile</h2>
                 </div>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <p style="font-size:0.82rem; color:var(--nr-text-muted); margin-bottom:1.2rem;">

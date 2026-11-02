@@ -163,9 +163,9 @@
         <span class="status-dot cyan" aria-hidden="true"></span>
         <span class="nr-badge" style="margin-bottom:0;">SYSTEM OVERVIEW</span>
     </div>
-    <h3 style="font-family:'Inter',sans-serif; font-weight:600; font-size:1.4rem; color:#e0e0e0; margin-bottom:0.2rem;">
+    <h2 class="h3" style="font-family:'Inter',sans-serif; font-weight:600; font-size:1.4rem; color:#e0e0e0; margin-bottom:0.2rem;">
         Welcome back, <span class="nr-accent">{{ current_user.username }}</span>
-    </h3>
+    </h2>
     <div class="term" style="font-size: 0.75rem;">
         NetRollout &nbsp;·&nbsp;
         <span id="dashClock"></span>
@@ -511,7 +511,7 @@
             {% endif %}
         </span>
     </div>
-    <select onchange="applyKpiScope(this.value)"
+    <select onchange="applyKpiScope(this.value)" aria-label="KPI scope"
             style="background:#111; border:1px solid #2a2a2a; border-radius:6px;
                    color:#ccc; font-size:0.75rem; padding:0.25rem 0.55rem;
                    font-family:'JetBrains Mono',monospace; cursor:pointer; outline:none;">

@@ -6,9 +6,9 @@
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-3">
   <div>
     <div class="nr-badge" style="margin-bottom:0.35rem;">USER MANAGEMENT</div>
-    <h4 class="mb-0 nr-page-title">
+    <h2 class="h4 mb-0 nr-page-title">
       All Users
-    </h4>
+    </h2>
   </div>
   <input type="text" id="userSearch" class="form-control form-control-sm"
          placeholder="Search users..."
@@ -17,7 +17,7 @@
 
 <!-- Action Toolbar -->
 <div class="admin-toolbar mb-3">
-  <span class="toolbar-label" id="selectionInfo">SELECT USERS TO PERFORM ACTIONS</span>
+  <span class="toolbar-label" id="selectionInfo" aria-live="polite">SELECT USERS TO PERFORM ACTIONS</span>
   <div class="d-flex gap-2 align-items-center flex-wrap">
 
     <button class="tb-btn approve-tb" id="btnAddUser" type="button">
@@ -101,15 +101,17 @@
     <thead>
       <tr>
         <th style="width:36px; padding-right:0;">
-          <input type="checkbox" id="selectAll" class="form-check-input" style="margin:0; cursor:pointer;">
+          <span class="visually-hidden">Select</span>
+          <input type="checkbox" id="selectAll" class="form-check-input" style="margin:0; cursor:pointer;"
+                 aria-label="Select all users">
         </th>
-        <th class="sortable" data-col="1">Username <span class="sort-icon">⇅</span></th>
-        <th class="sortable" data-col="2">Full Name <span class="sort-icon">⇅</span></th>
-        <th class="sortable" data-col="3">Email <span class="sort-icon">⇅</span></th>
-        <th class="sortable" data-col="4">Role <span class="sort-icon">⇅</span></th>
+        <th class="sortable" data-col="1"><button type="button" class="nr-sort-btn">Username <span class="sort-icon" aria-hidden="true">⇅</span></button></th>
+        <th class="sortable" data-col="2"><button type="button" class="nr-sort-btn">Full Name <span class="sort-icon" aria-hidden="true">⇅</span></button></th>
+        <th class="sortable" data-col="3"><button type="button" class="nr-sort-btn">Email <span class="sort-icon" aria-hidden="true">⇅</span></button></th>
+        <th class="sortable" data-col="4"><button type="button" class="nr-sort-btn">Role <span class="sort-icon" aria-hidden="true">⇅</span></button></th>
         <th>Position</th>
-        <th class="sortable" data-col="6">Member Since <span class="sort-icon">⇅</span></th>
-        <th class="sortable" data-col="7">Status <span class="sort-icon">⇅</span></th>
+        <th class="sortable" data-col="6"><button type="button" class="nr-sort-btn">Member Since <span class="sort-icon" aria-hidden="true">⇅</span></button></th>
+        <th class="sortable" data-col="7"><button type="button" class="nr-sort-btn">Status <span class="sort-icon" aria-hidden="true">⇅</span></button></th>
       </tr>
     </thead>
     <tbody>
@@ -125,7 +127,8 @@
           data-user='{{ {"id": user.id|string, "username": user.username, "role": user.role, "approved": user.is_approved, "active": user.is_active, "is_self": (user.id == current_user.id), "is_factory": (user.id in factory_ids), "has_session": (user.id|string in session_user_ids), "auth_type": user.auth_type, "has_2fa": user.otp_secret is not none, "locked": (user.id in locked_seconds), "role_from_directory": (user.id in from_directory_ids), "no_directory": (user.id in no_directory_ids)}|tojson }}'>
 
         <td style="padding-right:0;">
-          <input type="checkbox" class="form-check-input row-cb" style="margin:0; cursor:pointer;" value="{{ user.id }}">
+          <input type="checkbox" class="form-check-input row-cb" style="margin:0; cursor:pointer;" value="{{ user.id }}"
+                 aria-label="Select {{ user.username }}">
         </td>
 
         <td style="font-family:'JetBrains Mono',monospace; font-size:0.83rem; color:#e0e0e0; font-weight:600;">
@@ -192,7 +195,7 @@
       <div class="modal-header">
         <div>
           <div class="nr-badge" style="margin-bottom:0.3rem;">LDAP</div>
-          <h5 class="modal-title" id="reconnectTitle">Reconnect to a server</h5>
+          <h2 class="modal-title h5" id="reconnectTitle">Reconnect to a server</h2>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
@@ -223,13 +226,13 @@
   </div>
 </div>
 
-<div class="modal fade" id="resetPwModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="resetPwModal" tabindex="-1" aria-hidden="true" aria-labelledby="resetPwModalTitle">
   <div class="modal-dialog modal-dialog-centered" style="max-width:430px;">
     <div class="modal-content">
       <div class="modal-header">
         <div>
           <div class="nr-badge" style="margin-bottom:0.3rem;">PASSWORD</div>
-          <h5 class="modal-title">Reset Password</h5>
+          <h2 class="modal-title h5" id="resetPwModalTitle">Reset Password</h2>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
@@ -273,7 +276,7 @@
   <div class="modal-dialog modal-dialog-centered" style="max-width:480px;">
     <div class="modal-content">
       <div class="modal-header">
-        <h5 class="modal-title" id="addUserTitle"><i class="bi bi-person-plus me-2" style="color:var(--nr-accent);"></i>Add user</h5>
+        <h2 class="modal-title h5" id="addUserTitle"><i class="bi bi-person-plus me-2" style="color:var(--nr-accent);"></i>Add user</h2>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <form id="addUserForm" novalidate>
@@ -333,13 +336,13 @@
 </div>
 
 <!-- Reset 2FA confirmation modal -->
-<div class="modal fade" id="reset2faModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="reset2faModal" tabindex="-1" aria-hidden="true" aria-labelledby="reset2faModalTitle">
   <div class="modal-dialog modal-dialog-centered" style="max-width:430px;">
     <div class="modal-content">
       <div class="modal-header">
         <div>
           <div class="nr-badge" style="margin-bottom:0.3rem;">TWO-FACTOR</div>
-          <h5 class="modal-title">Reset 2FA</h5>
+          <h2 class="modal-title h5" id="reset2faModalTitle">Reset 2FA</h2>
         </div>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
@@ -369,15 +372,15 @@
 </div>
 
 <!-- Delete confirmation modal -->
-<div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true" aria-labelledby="deleteModalTitle">
   <div class="modal-dialog modal-dialog-centered" style="max-width:430px;">
     <div class="modal-content">
       <div class="modal-header">
         <div>
           <div class="nr-badge nr-badge-danger">IRREVERSIBLE ACTION</div>
-          <h5 class="modal-title nr-danger-soft">Delete Users</h5>
+          <h2 class="modal-title h5 nr-danger-soft" id="deleteModalTitle">Delete Users</h2>
         </div>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
         <p style="font-size:0.88rem; color:#ccc; margin-bottom:0.6rem;">
@@ -468,6 +471,9 @@
 
   /* Table */
   .sortable { cursor: pointer; user-select: none; }
+  /* the header's button: what the keyboard reaches; looks like the header text */
+  .nr-sort-btn { background: none; border: 0; padding: 0; color: inherit; font: inherit;
+                 letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
   .sortable:hover { background-color: rgba(0,188,212,0.03); }
   .sort-icon { font-size: 0.75rem; color: var(--nr-text-faint); margin-left: 0.2rem; }
 
@@ -659,7 +665,7 @@
     info.textContent = sel.length === 0
       ? "SELECT USERS TO PERFORM ACTIONS"
       : `${sel.length} USER${sel.length !== 1 ? "S" : ""} SELECTED`;
-    info.style.color = sel.length ? "#00bcd4" : "#333";
+    info.style.color = sel.length ? "#00bcd4" : "var(--nr-text-muted)";
 
     ACTIONS.forEach(name => {
       const btn  = document.getElementById("btn" + name);
@@ -996,6 +1002,8 @@
       }).forEach(r => tbody.appendChild(r));
       document.querySelectorAll(".sort-icon").forEach(i => i.textContent = "⇅");
       this.querySelector(".sort-icon").textContent = sortDir[col] ? "▲" : "▼";
+      document.querySelectorAll(".sortable").forEach(h => h.removeAttribute("aria-sort"));
+      this.setAttribute("aria-sort", sortDir[col] ? "ascending" : "descending");
     });
   });
 
@@ -1008,9 +1016,9 @@
   <div class="d-flex align-items-center justify-content-between mb-3">
     <div>
       <div class="nr-badge" style="margin-bottom:0.3rem;">LDAP</div>
-      <h5 class="mb-0" style="font-family:'Inter',sans-serif; font-weight:600; font-size:1rem; color:#e0e0e0;">
+      <h3 class="h5 mb-0" style="font-family:'Inter',sans-serif; font-weight:600; font-size:1rem; color:#e0e0e0;">
         Group Rules
-      </h5>
+      </h3>
     </div>
     <span style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:var(--nr-text-muted); letter-spacing:0.5px;">
       Auto-enroll users matching LDAP group membership
@@ -1094,7 +1102,7 @@
     }
 
     let html = '<table class="gr-table">';
-    html += '<thead><tr><th>Label</th><th>Group DN</th><th>Role</th><th>Server</th><th>Status</th><th></th></tr></thead><tbody>';
+    html += '<thead><tr><th>Label</th><th>Group DN</th><th>Role</th><th>Server</th><th>Status</th><th><span class="visually-hidden">Actions</span></th></tr></thead><tbody>';
 
     results.forEach(({ server, groups }) => {
       if (!groups.length) return;

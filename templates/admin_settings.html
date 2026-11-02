@@ -65,9 +65,9 @@
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
   <div>
     <div class="nr-badge" style="margin-bottom:0.35rem;">SYSTEM SETTINGS</div>
-    <h4 class="mb-0" style="font-family:'Inter',sans-serif; font-weight:600; font-size:1.15rem; color:#e0e0e0;">
+    <h2 class="h4 mb-0" style="font-family:'Inter',sans-serif; font-weight:600; font-size:1.15rem; color:#e0e0e0;">
       System Settings
-    </h4>
+    </h2>
     <div style="font-size:0.82rem; color:var(--nr-text-muted); margin-top:0.3rem;">
       Apply to the whole installation and every user. Each change is recorded in the audit log.
     </div>
@@ -562,7 +562,7 @@
     if (!b.backups.length) { list.innerHTML = '<div class="bk-empty">No backups yet.</div>'; return; }
     const kindClass = k => k === 'manual' ? 'manual' : k.startsWith('before') ? 'before' : '';
     list.innerHTML = '<table class="bk-table"><thead><tr><th>Made</th><th>Kind</th><th>Version</th>' +
-      '<th style="text-align:right">Size</th><th></th></tr></thead><tbody>' +
+      '<th style="text-align:right">Size</th><th><span class="visually-hidden">Actions</span></th></tr></thead><tbody>' +
       b.backups.map(x => '<tr><td>' +
         (x.problem ? `<span class="bk-bad" title="${nrEscape(x.problem)}">damaged</span> ` + nrEscape(x.name)
                    : nrEscape(when(x.created))) + '</td>' +

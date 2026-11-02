@@ -9,9 +9,9 @@
 <!-- Hero -->
 <div class="mb-4">
   <div class="nr-badge">2FA SETUP</div>
-  <h2 class="nr-kpi-value">
+  <h1 class="nr-kpi-value">
     Authenticator Enrollment
-  </h2>
+  </h1>
   <p class="nr-page-subtitle">
     Scan the QR code with Google Authenticator or Authy, then confirm with a code.
   </p>
@@ -68,19 +68,20 @@
     <!-- OTP Input Form -->
     <form method="POST" action="{{ url_for('auth.account_2fa_setup') if optional else url_for('auth.otp_enroll') }}" id="otpForm">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div class="d-flex justify-content-center gap-2 mb-4" id="otpBoxes">
+      <div class="d-flex justify-content-center gap-2 mb-4" id="otpBoxes"
+           role="group" aria-label="6-digit code from your authenticator app">
         <input type="text" maxlength="1" class="otp-box form-control text-center fw-bold"
-               inputmode="numeric" pattern="[0-9]" autocomplete="off">
+               inputmode="numeric" pattern="[0-9]" autocomplete="off" aria-label="Digit 1 of 6">
         <input type="text" maxlength="1" class="otp-box form-control text-center fw-bold"
-               inputmode="numeric" pattern="[0-9]" autocomplete="off">
+               inputmode="numeric" pattern="[0-9]" autocomplete="off" aria-label="Digit 2 of 6">
         <input type="text" maxlength="1" class="otp-box form-control text-center fw-bold"
-               inputmode="numeric" pattern="[0-9]" autocomplete="off">
+               inputmode="numeric" pattern="[0-9]" autocomplete="off" aria-label="Digit 3 of 6">
         <input type="text" maxlength="1" class="otp-box form-control text-center fw-bold"
-               inputmode="numeric" pattern="[0-9]" autocomplete="off">
+               inputmode="numeric" pattern="[0-9]" autocomplete="off" aria-label="Digit 4 of 6">
         <input type="text" maxlength="1" class="otp-box form-control text-center fw-bold"
-               inputmode="numeric" pattern="[0-9]" autocomplete="off">
+               inputmode="numeric" pattern="[0-9]" autocomplete="off" aria-label="Digit 5 of 6">
         <input type="text" maxlength="1" class="otp-box form-control text-center fw-bold"
-               inputmode="numeric" pattern="[0-9]" autocomplete="off">
+               inputmode="numeric" pattern="[0-9]" autocomplete="off" aria-label="Digit 6 of 6">
       </div>
       <input type="hidden" name="code" id="codeInput">
       <div class="d-grid">

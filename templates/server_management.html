@@ -5,9 +5,9 @@
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
   <div>
     <div class="nr-badge" style="margin-bottom:0.35rem;">SERVER MANAGEMENT</div>
-    <h4 class="mb-0 nr-page-title">
+    <h2 class="h4 mb-0 nr-page-title">
       Infrastructure Configuration
-    </h4>
+    </h2>
   </div>
 </div>
 
@@ -27,7 +27,8 @@
     <div class="d-flex flex-column flex-md-row gap-3 mb-4">
 
       <!-- PostgreSQL button -->
-      <div class="db-service-btn" id="svc-postgres" onclick="selectService('postgres')">
+      <div class="db-service-btn" id="svc-postgres" onclick="selectService('postgres')"
+           role="button" tabindex="0" data-nr-activate aria-expanded="false" aria-controls="form-postgres">
         <div class="d-flex align-items-center gap-3">
           <img alt="" src="https://cdn.simpleicons.org/postgresql/336791" width="32" height="32"
                onerror="this.style.display='none'">
@@ -52,7 +53,8 @@
       </div>
 
       <!-- Redis button -->
-      <div class="db-service-btn" id="svc-redis" onclick="selectService('redis')">
+      <div class="db-service-btn" id="svc-redis" onclick="selectService('redis')"
+           role="button" tabindex="0" data-nr-activate aria-expanded="false" aria-controls="form-redis">
         <div class="d-flex align-items-center gap-3">
           <img alt="" src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/redis/redis-original.svg" width="32" height="32"
                onerror="this.style.display='none'">
@@ -352,7 +354,7 @@
       CA, or a lab server's own self-signed certificate). Applies to the next connection, no restart.
     </div>
     <table class="table table-sm nr-ca-table mt-2" id="caTable" style="display:none;">
-      <thead><tr><th>Subject</th><th>Issuer</th><th>Expires</th><th></th></tr></thead>
+      <thead><tr><th>Subject</th><th>Issuer</th><th>Expires</th><th><span class="visually-hidden">Actions</span></th></tr></thead>
       <tbody id="caRows"></tbody>
     </table>
     <div id="caNone" class="cert-hint mt-2" style="display:none;">None added - only the operating system's CAs are trusted.</div>
@@ -423,12 +425,14 @@
         </div>
         <div class="col-12">
           <label class="nr-label d-block mb-2">Bind Type</label>
-          <div class="d-flex gap-2">
-            <div class="ldap-bind-option selected" onclick="newBindType('simple')" id="n_opt_simple">
+          <div class="d-flex gap-2" role="radiogroup" aria-label="Bind type">
+            <div class="ldap-bind-option selected" onclick="newBindType('simple')" id="n_opt_simple"
+                 role="radio" aria-checked="true" tabindex="0" data-nr-activate>
               <div style="font-weight:600; font-size:0.84rem; color:#ccc;">Simple</div>
               <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.15rem;">No stored service credentials</div>
             </div>
-            <div class="ldap-bind-option" onclick="newBindType('regular')" id="n_opt_regular">
+            <div class="ldap-bind-option" onclick="newBindType('regular')" id="n_opt_regular"
+                 role="radio" aria-checked="false" tabindex="0" data-nr-activate>
               <div style="font-weight:600; font-size:0.84rem; color:#ccc;">Regular</div>
               <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.15rem;">Service account - enables Explorer + group rules</div>
             </div>
@@ -474,15 +478,15 @@
 </div>
 
 <!-- ── DELETE LDAP SERVER MODAL ───────────────────────────────── -->
-<div class="modal fade" id="ldapDeleteModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="ldapDeleteModal" tabindex="-1" aria-hidden="true" aria-labelledby="ldapDeleteTitle">
   <div class="modal-dialog modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
         <div>
           <div class="nr-badge" style="margin-bottom:0.3rem; color:#ef9a9a; border-color:rgba(239,83,80,0.3);">DELETE SERVER</div>
-          <h5 class="modal-title" style="color:#e0e0e0;" id="ldapDeleteTitle">Delete server</h5>
+          <h2 class="modal-title h5" style="color:#e0e0e0;" id="ldapDeleteTitle">Delete server</h2>
         </div>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body" style="font-size:0.82rem; color:var(--nr-text-muted);">
         <p class="mb-2">Its group rules go with it, and its users can't sign in any more.</p>
@@ -514,15 +518,15 @@
 </div>
 
 <!-- ── EXPLORER MODAL ─────────────────────────────────────────── -->
-<div class="modal fade" id="explorerModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="explorerModal" tabindex="-1" aria-hidden="true" aria-labelledby="explorerTitle">
   <div class="modal-dialog modal-xl modal-dialog-centered">
     <div class="modal-content">
       <div class="modal-header">
         <div>
           <div class="nr-badge" style="margin-bottom:0.3rem;">LDAP EXPLORER</div>
-          <h5 class="modal-title" style="color:#e0e0e0;" id="explorerTitle">Directory Browser</h5>
+          <h2 class="modal-title h5" style="color:#e0e0e0;" id="explorerTitle">Directory Browser</h2>
         </div>
-        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body p-0" style="display:flex; min-height:460px; max-height:60vh;">
         <!-- Tree panel -->
@@ -871,6 +875,7 @@
     if (svc && document.getElementById(`form-${svc}`).style.display === 'block') svc = null;
     ['postgres', 'redis'].forEach(s => {
       document.getElementById(`svc-${s}`).classList.toggle('selected', s === svc);
+      document.getElementById(`svc-${s}`).setAttribute('aria-expanded', s === svc ? 'true' : 'false');
       document.getElementById(`form-${s}`).style.display = s === svc ? 'block' : 'none';
     });
   }
@@ -1218,13 +1223,14 @@
       ? '<span class="conn-dot connected"></span>'
       : '<span class="conn-dot disconnected"></span>';
     return `
-      <div class="ldap-server-row" id="row-${s.id}" onclick="toggleExpand('${s.id}')">
+      <div class="ldap-server-row" id="row-${s.id}" onclick="toggleExpand('${s.id}')"
+           role="button" tabindex="0" data-nr-activate aria-expanded="false" aria-controls="panel-${s.id}">
         ${dot}
         <span class="ldap-server-name">${nrEscape(s.name)}</span>
         <span class="ldap-server-host">${nrEscape(s.host)}:${s.port}</span>
         <span class="ldap-bind-badge">${s.bind_type.toUpperCase()}</span>
         <span style="flex:1;"></span>
-        <i class="bi bi-chevron-down ldap-chevron" id="chev-${s.id}"></i>
+        <i class="bi bi-chevron-down ldap-chevron" id="chev-${s.id}" aria-hidden="true"></i>
       </div>
       <div id="panel-${s.id}" style="display:none;"></div>
     `;
@@ -1244,6 +1250,7 @@
   function collapseServer(id) {
     document.getElementById(`panel-${id}`).style.display = 'none';
     document.getElementById(`row-${id}`).classList.remove('expanded');
+    document.getElementById(`row-${id}`).setAttribute('aria-expanded', 'false');
     document.getElementById(`chev-${id}`).style.transform = '';
   }
 
@@ -1279,6 +1286,7 @@
     panel.innerHTML = editPanelHtml(s);
     panel.style.display = 'block';
     document.getElementById(`row-${id}`).classList.add('expanded');
+    document.getElementById(`row-${id}`).setAttribute('aria-expanded', 'true');
     document.getElementById(`chev-${id}`).style.transform = 'rotate(180deg)';
   }
 
@@ -1326,14 +1334,16 @@
           </div>
           <div class="col-12">
             <label class="nr-label d-block mb-2">Bind Type</label>
-            <div class="d-flex gap-2">
+            <div class="d-flex gap-2" role="radiogroup" aria-label="Bind type">
               <div class="ldap-bind-option ${!isReg ? 'selected' : ''}"
-                   onclick="setBindType('${s.id}', 'simple')" id="e_${s.id}_opt_simple">
+                   onclick="setBindType('${s.id}', 'simple')" id="e_${s.id}_opt_simple"
+                   role="radio" aria-checked="${!isReg}" tabindex="0" data-nr-activate>
                 <div style="font-weight:600; font-size:0.84rem; color:#ccc;">Simple</div>
                 <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.15rem;">No stored service credentials</div>
               </div>
               <div class="ldap-bind-option ${isReg ? 'selected' : ''}"
-                   onclick="setBindType('${s.id}', 'regular')" id="e_${s.id}_opt_regular">
+                   onclick="setBindType('${s.id}', 'regular')" id="e_${s.id}_opt_regular"
+                   role="radio" aria-checked="${isReg}" tabindex="0" data-nr-activate>
                 <div style="font-weight:600; font-size:0.84rem; color:#ccc;">Regular</div>
                 <div style="font-size: 0.75rem; color:var(--nr-text-muted); margin-top:0.15rem;">Service account - enables Explorer + group rules</div>
               </div>
@@ -1417,6 +1427,8 @@
     const isReg = type === 'regular';
     document.getElementById(`e_${id}_opt_simple`).classList.toggle('selected', !isReg);
     document.getElementById(`e_${id}_opt_regular`).classList.toggle('selected', isReg);
+    document.getElementById(`e_${id}_opt_simple`).setAttribute('aria-checked', !isReg ? 'true' : 'false');
+    document.getElementById(`e_${id}_opt_regular`).setAttribute('aria-checked', isReg ? 'true' : 'false');
     document.getElementById(`e_${id}_bind_fields`).style.display = isReg ? 'block' : 'none';
     const expBtn = document.getElementById(`e_${id}_exp_btn`);
     if (expBtn) expBtn.disabled = !isReg;
@@ -1434,6 +1446,8 @@
     newBindSelected = type;
     document.getElementById('n_opt_simple').classList.toggle('selected', type === 'simple');
     document.getElementById('n_opt_regular').classList.toggle('selected', type === 'regular');
+    document.getElementById('n_opt_simple').setAttribute('aria-checked', type === 'simple' ? 'true' : 'false');
+    document.getElementById('n_opt_regular').setAttribute('aria-checked', type === 'regular' ? 'true' : 'false');
     document.getElementById('n_bind_fields').style.display = type === 'regular' ? 'block' : 'none';
   }
 

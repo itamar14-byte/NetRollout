@@ -2,15 +2,15 @@
    #name_id (the page's script fills it and the form's action), the note in
    #deleteModalNote (a script may say more there), Cancel / Delete. #}
 {% macro delete_modal(title, prompt, name_id, name_color, note) %}
-<div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="deleteModal" tabindex="-1" aria-hidden="true" aria-labelledby="deleteModalTitle">
     <div class="modal-dialog modal-dialog-centered" style="max-width:420px;">
         <div class="modal-content">
             <div class="modal-header">
                 <div>
                     <div class="nr-badge nr-badge-danger">IRREVERSIBLE ACTION</div>
-                    <h5 class="modal-title nr-danger-soft">{{ title }}</h5>
+                    <h2 class="modal-title h5 nr-danger-soft" id="deleteModalTitle">{{ title }}</h2>
                 </div>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <p style="font-size:0.88rem; color:#ccc; margin-bottom:0.4rem;">

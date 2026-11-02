@@ -3,15 +3,15 @@
    with Cancel (nrRolloutsTable), then "Restart when finished" / "Restart
    now". After "when finished" it stays open, the list refreshing, until
    NetRollout is back (#restartWaiting). #}
-<div class="modal fade" id="restartModal" tabindex="-1">
+<div class="modal fade" id="restartModal" tabindex="-1" aria-labelledby="restartModalTitle">
     <div class="modal-dialog modal-dialog-centered" style="max-width:620px;">
         <div class="modal-content">
             <div class="modal-header" style="border-bottom:1px solid #222;">
                 <div>
                     <div class="nr-badge nr-badge-danger">WARNING</div>
-                    <h5 class="modal-title nr-danger-soft">Restart Server</h5>
+                    <h2 class="modal-title h5 nr-danger-soft" id="restartModalTitle">Restart Server</h2>
                 </div>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <p style="font-size:0.85rem; color:#ddd; margin-bottom:0.2rem;" id="restartJobWarning"></p>

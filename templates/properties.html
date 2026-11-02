@@ -14,7 +14,9 @@
     transition: border-color 0.2s;
 }
 .prop-card:hover { border-color: #2a2a2a; }
-.prop-card.system { opacity: 0.7; }
+/* system properties sit back - by their frame, not by fading the text (contrast) */
+.prop-card.system { background: #141414; border-style: dashed; }
+.prop-card.system .prop-icon { opacity: 0.7; }
 .prop-icon {
     width: 36px; height: 36px; border-radius: 8px;
     background: #111; border: 1px solid #222;
@@ -130,12 +132,12 @@
 {% endcall %}
 
 <!-- ══ EDIT MODAL ══ -->
-<div class="modal fade" id="editPropModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+<div class="modal fade" id="editPropModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false" aria-labelledby="editPropModalTitle">
     <div class="modal-dialog modal-dialog-centered" style="max-width:400px;">
         <div class="modal-content">
             <div class="modal-header">
-                <h5 class="modal-title">Edit Property</h5>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                <h2 class="modal-title h5" id="editPropModalTitle">Edit Property</h2>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <input type="hidden" id="editPropId">

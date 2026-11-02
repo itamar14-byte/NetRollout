@@ -7,7 +7,7 @@
 <div class="d-flex align-items-center justify-content-between mb-4">
   <div>
     <div class="nr-badge mb-1">ADMIN · PLATFORM ANALYTICS</div>
-    <h4 style="color:#e0e0e0; margin:0; font-weight:600;">Organisation Overview</h4>
+    <h2 class="h4" style="color:#e0e0e0; margin:0; font-weight:600;">Organisation Overview</h2>
     <div style="font-size:0.72rem; color:var(--nr-text-muted); margin-top:0.25rem; font-family:'JetBrains Mono',monospace;">
       All users · 30-day window · live data
     </div>
@@ -338,6 +338,8 @@ $(function() {
       { type:'begins_with',      nb_inputs:1, multiple:false, apply_to:['string'], label:'starts with' },
     ]
   });
+
+  nrNameQueryBuilder(document.getElementById('queryBuilder'));
 
   $('#queryBuilder')
     .on('afterAddRule.queryBuilder', (e, rule) => injectFieldIcon(rule))

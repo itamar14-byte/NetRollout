@@ -20,7 +20,7 @@
 <div class="login-card mx-auto mb-4">
   <div class="login-card-accent"></div>
   <div class="login-card-body">
-    <h5 class="login-card-title">Sign In</h5>
+    <h1 class="login-card-title">Sign In</h1>
     <form method="POST" action="{{ url_for('auth.login') }}" novalidate>
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="mb-3 text-start">

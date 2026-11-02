@@ -272,28 +272,30 @@
         const CSRF_TOKEN = "{{ csrf_token() }}";
     </script>
 {% include "_escape_js.html" %}
+{% include "_a11y_js.html" %}
 {% include "_rollouts_table_js.html" %}
 </head>
 <body>
+<a class="nr-skip-link" href="#main">Skip to content</a>
 
 <!-- Topbar -->
-<div class="adm-topbar">
+<header class="adm-topbar">
     <div class="adm-topbar-left">
         <button type="button" class="nr-phone-menu" id="phoneMenu" aria-label="Menu"
                 aria-controls="adminSidebar">&#9776;</button>
         <img src="{{ url_for('static', filename='logo.svg') }}" alt="NetRollout" class="adm-topbar-logo"
              style="height:16px; width:auto; opacity:0.85;">
         <div class="adm-topbar-sep"></div>
-        <span class="adm-topbar-title">{{ {"users": "User Management", "sessions": "Live Sessions",
+        <h1 class="adm-topbar-title nr-topbar-heading">{{ {"users": "User Management", "sessions": "Live Sessions",
                                             "audit": "Audit Log", "analytics": "Analytics",
                                             "settings": "System Settings", "server": "Server Management"
-                                           }.get(active_section, "Administration") }}</span>
+                                           }.get(active_section, "Administration") }}</h1>
     </div>
     <div class="d-flex align-items-center gap-3">
         {% with view="admin" %}{% include "_view_switch.html" %}{% endwith %}
         {% include "_user_menu.html" %}
     </div>
-</div>
+</header>
 
 <!-- Body -->
 <div class="adm-body">
@@ -305,7 +307,8 @@
             <span class="adm-sb-brand">
                 <img src="{{ url_for('static', filename='logo.svg') }}" alt="NetRollout">
             </span>
-            <button class="adm-sb-toggle" id="admToggle" title="Toggle sidebar">&#9776;</button>
+            <button type="button" class="adm-sb-toggle" id="admToggle" title="Toggle sidebar" aria-label="Toggle sidebar"
+                    aria-controls="adminSidebar" aria-expanded="false">&#9776;</button>
         </div>
 
         <div class="adm-sb-nav">
@@ -313,7 +316,7 @@
             <div class="adm-sb-section">Access</div>
 
             <a href="{{ url_for('admin_users.admin_users') }}"
-               class="adm-sb-link {% if active_section == 'users' %}active{% endif %}"
+               class="adm-sb-link {% if active_section == 'users' %}active{% endif %}"{% if active_section == 'users' %} aria-current="page"{% endif %}
                title="User Management{% if pending_requests %} - {{ pending_requests }} access request{{ 's' if pending_requests != 1 }} waiting{% endif %}">
                 <span class="adm-sb-icon-wrap">
                     <i class="bi bi-people-fill adm-sb-icon"></i>
@@ -324,7 +327,7 @@
             </a>
 
             <a href="{{ url_for('admin_users.admin_sessions') }}"
-               class="adm-sb-link {% if active_section == 'sessions' %}active{% endif %}"
+               class="adm-sb-link {% if active_section == 'sessions' %}active{% endif %}"{% if active_section == 'sessions' %} aria-current="page"{% endif %}
                title="Live Sessions">
                 <i class="bi bi-person-lines-fill adm-sb-icon"></i>
                 <span class="adm-sb-label">Live Sessions</span>
@@ -334,14 +337,14 @@
             <div class="adm-sb-section">Observability</div>
 
             <a href="{{ url_for('admin_audit.admin_audit') }}"
-               class="adm-sb-link {% if active_section == 'audit' %}active{% endif %}"
+               class="adm-sb-link {% if active_section == 'audit' %}active{% endif %}"{% if active_section == 'audit' %} aria-current="page"{% endif %}
                title="Audit Logs">
                 <i class="bi bi-shield-check adm-sb-icon"></i>
                 <span class="adm-sb-label">Audit Logs</span>
             </a>
 
             <a href="{{ url_for('admin_observability.admin_analytics') }}"
-               class="adm-sb-link {% if active_section == 'analytics' %}active{% endif %}"
+               class="adm-sb-link {% if active_section == 'analytics' %}active{% endif %}"{% if active_section == 'analytics' %} aria-current="page"{% endif %}
                title="Analytics">
                 <i class="bi bi-bar-chart-line adm-sb-icon"></i>
                 <span class="adm-sb-label">Analytics</span>
@@ -359,14 +362,14 @@
             <div class="adm-sb-section">System</div>
 
             <a href="{{ url_for('admin_servers.admin_server') }}"
-               class="adm-sb-link {% if active_section == 'server' %}active{% endif %}"
+               class="adm-sb-link {% if active_section == 'server' %}active{% endif %}"{% if active_section == 'server' %} aria-current="page"{% endif %}
                title="Server Management">
                 <i class="bi bi-server adm-sb-icon"></i>
                 <span class="adm-sb-label">Server Management</span>
             </a>
 
             <a href="{{ url_for('admin_settings.settings_page') }}"
-               class="adm-sb-link {% if active_section == 'settings' %}active{% endif %}"
+               class="adm-sb-link {% if active_section == 'settings' %}active{% endif %}"{% if active_section == 'settings' %} aria-current="page"{% endif %}
                title="System Settings">
                 <i class="bi bi-gear adm-sb-icon"></i>
                 <span class="adm-sb-label">System Settings</span>
@@ -375,7 +378,7 @@
         </div>
 
         <div class="adm-sb-footer">
-            <div id="admRestartBtn" class="adm-sb-link"
+            <button type="button" id="admRestartBtn" class="adm-sb-link nr-sb-button"
                  title="{% if settings_restart_pending %}Restart required - {{ settings_restart_pending|join(', ') }} changed{% else %}Restart server{% endif %}"
                  style="cursor:pointer; color:var(--nr-text-muted); transition:color 0.15s;"
                  onmouseenter="this.style.color='#ef9a9a'"
@@ -385,8 +388,8 @@
                 <span class="adm-sb-label" style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; letter-spacing:1px;">RESTART</span>
                 <span id="restartPendingDot" style="display:{{ 'inline-block' if settings_restart_pending else 'none' }}; width:7px; height:7px; border-radius:50%;
                       background:#ffb74d; box-shadow:0 0 6px #ffb74d; margin-left:auto; flex-shrink:0;
-                      animation:restartPulse 1.4s ease-in-out infinite;"></span>
-            </div>
+                      animation:restartPulse 1.4s ease-in-out infinite;" aria-hidden="true"></span>
+            </button>
             <div class="adm-sb-link" style="opacity:0.25; pointer-events:none; gap:0.6rem; padding:0.3rem 0.5rem;">
                 <i class="bi bi-circle-fill adm-sb-icon" style="font-size:0.4rem; color:#1e3a3e;"></i>
                 <span class="adm-sb-label" style="font-family:'JetBrains Mono',monospace; font-size: 0.6875rem; color:var(--nr-text-muted); letter-spacing:1px;">v1.0</span>
@@ -396,7 +399,7 @@
     </nav>
 
     <!-- Main -->
-    <div class="adm-main">
+    <main id="main" class="adm-main" tabindex="-1">
 
         <!-- Flash messages -->
         <div class="px-3 px-md-4 pt-3">
@@ -413,7 +416,7 @@
         <!-- Footer -->
         {% include "_footer.html" %}
 
-    </div>
+    </main>
 </div>
 
 <!-- Restart modal -->
@@ -441,6 +444,9 @@
     try {
         if (!admPhone.matches && localStorage.getItem("admSidebarExpanded") === "true") admExpand();
     } catch (e) { /* none */ }
+
+    // the ☰ buttons say whether the sidebar is open, however it was opened
+    nrSyncExpanded(admSidebar, [admToggle, document.getElementById("phoneMenu")]);
 
     document.getElementById("phoneMenu").addEventListener("click", function(e) {
         e.stopPropagation();

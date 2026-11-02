@@ -459,7 +459,7 @@
                                 <span class="platform-tag">{{ device.device_type }}</span>
 
                                 {# Reachability from NetRollout - filled in by the page script #}
-                                <span class="reach reach--checking" aria-label="Checking reachability"
+                                <span class="reach reach--checking" role="img" aria-label="Checking reachability"
                                       title="Checking reachability…"><i class="bi bi-arrow-repeat"></i></span>
 
                                 {% if lacks_profile %}
@@ -479,7 +479,7 @@
     <div class="d-flex align-items-start justify-content-between flex-wrap gap-3 mb-4">
         <div>
             <div class="nr-badge mb-1">CONFIGURE ROLLOUT</div>
-            <h4 style="font-weight:600; margin:0;">New Rollout</h4>
+            <h2 class="h4" style="font-weight:600; margin:0;">New Rollout</h2>
         </div>
         <button type="submit" id="submitBtn" class="btn btn-primary"
                 style="font-size:0.83rem; padding:0.5rem 1.4rem;" disabled>
@@ -505,10 +505,10 @@
 
                         {# Header: select-all + search #}
                         <div class="device-list-header">
-                            <input type="checkbox" id="selectAll" class="nr-check" title="Select all">
+                            <input type="checkbox" id="selectAll" class="nr-check" title="Select all" aria-label="Select all devices">
                             <i class="bi bi-search" style="color:var(--nr-text-faint); font-size:0.75rem;"></i>
                             <input type="text" class="device-search"
-                                   id="deviceSearch" placeholder="Filter by label or address…">
+                                   id="deviceSearch" placeholder="Filter by label or address…" aria-label="Filter devices">
                             <button type="button" class="reach-recheck" id="reachRecheck"
                                     title="Re-probe every device now">
                                 <i class="bi bi-arrow-repeat"></i>Recheck

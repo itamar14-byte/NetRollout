@@ -107,10 +107,11 @@
     </style>
 </head>
 <body>
+<a class="nr-skip-link" href="#main">Skip to content</a>
 <div class="container py-4 text-center">
 
     {% if request.path != '/' or current_user.is_authenticated %}
-    <div class="nr-topbar text-start">
+    <header class="nr-topbar text-start">
         <div>
             {% if request.path != '/' %}
             {% block home_button %}
@@ -127,10 +128,12 @@
         {% if current_user.is_authenticated %}
         {% include "_user_menu.html" %}
         {% endif %}
-    </div>
+    </header>
     {% endif %}
 
+    <main id="main" tabindex="-1">
     {% block content %}{% endblock %}
+    </main>
 
     {% include "_footer.html" %}
 </div>

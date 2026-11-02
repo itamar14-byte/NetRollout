@@ -6,15 +6,15 @@
    badge and title name the entry point; the footer is the page's, given as
    the call's body. #}
 {% macro property_modal(modal_id, prefix, badge, title) %}
-<div class="modal fade" id="{{ modal_id }}" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="true">
+<div class="modal fade" id="{{ modal_id }}" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="true" aria-labelledby="{{ modal_id }}Title">
     <div class="modal-dialog modal-dialog-centered" style="max-width:400px;">
         <div class="modal-content">
             <div class="modal-header">
                 <div>
                     <div class="nr-badge" style="margin-bottom:0.3rem;">{{ badge }}</div>
-                    <h5 class="modal-title">{{ title }}</h5>
+                    <h2 class="modal-title h5" id="{{ modal_id }}Title">{{ title }}</h2>
                 </div>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <div class="mb-3">

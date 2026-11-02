@@ -145,7 +145,7 @@
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
     <div>
         <div class="nr-badge">VARIABLE MAPPINGS</div>
-        <h4 class="mb-0" style="font-weight:600; font-size:1.15rem;">Token Bindings</h4>
+        <h2 class="h4 mb-0" style="font-weight:600; font-size:1.15rem;">Token Bindings</h2>
         <p class="mt-1 mb-0 nr-note">
             {{ mappings|length }} mapping{{ "s" if mappings|length != 1 else "" }} configured
         </p>
@@ -239,15 +239,15 @@
 <!-- ══════════════════════════════════════
      ADD MAPPING MODAL
 ══════════════════════════════════════ -->
-<div class="modal fade" id="addModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+<div class="modal fade" id="addModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false" aria-labelledby="addModalTitle">
     <div class="modal-dialog modal-dialog-centered" style="max-width:460px;">
         <div class="modal-content">
             <div class="modal-header">
                 <div>
                     <div class="nr-badge" style="margin-bottom:0.3rem;">NEW MAPPING</div>
-                    <h5 class="modal-title">Add Token Binding</h5>
+                    <h2 class="modal-title h5" id="addModalTitle">Add Token Binding</h2>
                 </div>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <form method="POST" action="{{ url_for('mappings.mappings_create') }}" novalidate>
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -352,15 +352,15 @@
 <!-- ══════════════════════════════════════
      EDIT MAPPING MODAL
 ══════════════════════════════════════ -->
-<div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+<div class="modal fade" id="editModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false" aria-labelledby="editModalTitle">
     <div class="modal-dialog modal-dialog-centered" style="max-width:460px;">
         <div class="modal-content">
             <div class="modal-header">
                 <div>
                     <div class="nr-badge" style="margin-bottom:0.3rem;">EDIT MAPPING</div>
-                    <h5 class="modal-title" id="editModalTitle">Edit Mapping</h5>
+                    <h2 class="modal-title h5" id="editModalTitle">Edit Mapping</h2>
                 </div>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <form method="POST" id="editForm" action="" novalidate>
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -472,13 +472,13 @@
 <!-- ══════════════════════════════════════
      DEVICE ASSIGNMENTS MODAL
 ══════════════════════════════════════ -->
-<div class="modal fade" id="devicesModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="devicesModal" tabindex="-1" aria-hidden="true" aria-labelledby="devicesModalTitle">
     <div class="modal-dialog modal-dialog-centered" style="max-width:780px;">
         <div class="modal-content">
             <div class="modal-header">
                 <div style="flex:1;">
                     <div class="nr-badge" style="margin-bottom:0.3rem;">DEVICE ASSIGNMENTS</div>
-                    <h5 class="modal-title" id="devicesModalTitle">Assignments</h5>
+                    <h2 class="modal-title h5" id="devicesModalTitle">Assignments</h2>
                 </div>
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>

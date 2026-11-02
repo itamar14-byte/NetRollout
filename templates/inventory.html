@@ -78,6 +78,10 @@
     white-space: nowrap;
     min-width: 0;
 }
+/* the label as a button: looks like the label; the card shows its focus */
+.inv-card-open { background: none; border: 0; padding: 0; text-align: left; cursor: pointer; }
+.inv-card-open:focus-visible { outline: none !important; }
+.inv-card:has(.inv-card-open:focus-visible) { outline: 2px solid var(--nr-accent); outline-offset: 2px; }
 .inv-card-ip {
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.71rem;
@@ -478,8 +482,9 @@
                 <i class="bi bi-router" style="{{ 'display:none;' if logo_url else '' }} font-size:0.95rem; color:var(--nr-text-faint);"></i>
             </div>
 
-            <!-- Label -->
-            <span class="inv-card-label">{{ device.label }}</span>
+            <!-- Label: a button, the keyboard's way into the card (its click opens the device) -->
+            <button type="button" class="inv-card-label inv-card-open"
+                    aria-label="{{ 'Edit' if editable else 'View' }} {{ device.label }} ({{ device.ip }})">{{ device.label }}</button>
 
             {% if device.is_global %}
             <span class="nr-global-badge" title="Global device - shared by an administrator">
@@ -498,7 +503,7 @@
             {% endif %}
 
             <!-- Reachability from NetRollout - filled in after load -->
-            <span class="reach reach--checking" data-reach-for="{{ device.id }}"
+            <span class="reach reach--checking" data-reach-for="{{ device.id }}" role="img"
                   aria-label="Checking reachability" title="Checking reachability…"><i class="bi bi-arrow-repeat"></i></span>
 
             <!-- IP (secondary, hidden on hover by CSS transition if needed) -->
@@ -506,8 +511,8 @@
 
             {% if editable %}
             <!-- Delete icon - hover-reveal, stops card click propagation -->
-            <button class="card-delete-btn" title="Remove device">
-                <i class="bi bi-trash3"></i>
+            <button type="button" class="card-delete-btn" title="Remove device" aria-label="Remove {{ device.label }}">
+                <i class="bi bi-trash3" aria-hidden="true"></i>
             </button>
             {% endif %}
 
@@ -519,7 +524,7 @@
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
     <div>
         <div class="nr-badge">INVENTORY</div>
-        <h4 class="mb-0" style="font-weight:600; font-size:1.15rem;">Device Inventory</h4>
+        <h2 class="h4 mb-0" style="font-weight:600; font-size:1.15rem;">Device Inventory</h2>
         <p class="mt-1 mb-0 nr-note">
             {{ devices|length }} device{{ "s" if devices|length != 1 else "" }} {{ "need your security profile" if only_needing else "configured" }}
         </p>
@@ -670,15 +675,15 @@
 <!-- ══════════════════════════════════════
      ADD DEVICE MODAL
 ══════════════════════════════════════ -->
-<div class="modal fade" id="addDeviceModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+<div class="modal fade" id="addDeviceModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false" aria-labelledby="addDeviceModalTitle">
     <div class="modal-dialog modal-dialog-centered" style="max-width:480px;">
         <div class="modal-content">
             <div class="modal-header">
                 <div>
                     <div class="nr-badge" style="margin-bottom:0.3rem;">NEW DEVICE</div>
-                    <h5 class="modal-title">Add Device</h5>
+                    <h2 class="modal-title h5" id="addDeviceModalTitle">Add Device</h2>
                 </div>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <form method="POST" action="/inventory/create" novalidate>
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -816,15 +821,15 @@
 <!-- ══════════════════════════════════════
      EDIT DEVICE MODAL
 ══════════════════════════════════════ -->
-<div class="modal fade" id="editDeviceModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false">
+<div class="modal fade" id="editDeviceModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" data-bs-keyboard="false" aria-labelledby="editDevTitle">
     <div class="modal-dialog modal-dialog-centered" style="max-width:480px;">
         <div class="modal-content">
             <div class="modal-header">
                 <div>
                     <div class="nr-badge" style="margin-bottom:0.3rem;">EDIT DEVICE</div>
-                    <h5 class="modal-title" id="editDevTitle">Edit Device</h5>
+                    <h2 class="modal-title h5" id="editDevTitle">Edit Device</h2>
                 </div>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <form method="POST" id="editDevForm" action="" novalidate>
                 <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -1080,7 +1085,7 @@
 <!-- ══════════════════════════════════════
      DELETE DEVICE MODAL
 ══════════════════════════════════════ -->
-<div class="modal fade" id="deleteDeviceModal" tabindex="-1" aria-hidden="true">
+<div class="modal fade" id="deleteDeviceModal" tabindex="-1" aria-hidden="true" aria-labelledby="deleteDeviceModalTitle">
     <div class="modal-dialog modal-dialog-centered" style="max-width:420px;">
         <div class="modal-content">
             <div class="modal-header">
@@ -1088,9 +1093,9 @@
                     <div class="nr-badge nr-badge-danger">
                         IRREVERSIBLE ACTION
                     </div>
-                    <h5 class="modal-title nr-danger-soft">Remove Device</h5>
+                    <h2 class="modal-title h5 nr-danger-soft" id="deleteDeviceModalTitle">Remove Device</h2>
                 </div>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <p style="font-size:0.88rem; color:#ccc; margin-bottom:0.4rem;">
@@ -1122,15 +1127,15 @@
 <!-- ══════════════════════════════════════
      IMPORT CSV MODAL
 ══════════════════════════════════════ -->
-<div class="modal fade" id="importCsvModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+<div class="modal fade" id="importCsvModal" tabindex="-1" aria-hidden="true" data-bs-backdrop="static" aria-labelledby="importCsvModalTitle">
     <div class="modal-dialog modal-dialog-centered" style="max-width:460px;">
         <div class="modal-content">
             <div class="modal-header">
                 <div>
                     <div class="nr-badge" style="margin-bottom:0.3rem;">BULK IMPORT</div>
-                    <h5 class="modal-title">Import from CSV</h5>
+                    <h2 class="modal-title h5" id="importCsvModalTitle">Import from CSV</h2>
                 </div>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <form method="POST" action="{{ url_for('inventory.inventory_import_csv') }}"
                   enctype="multipart/form-data" novalidate>
@@ -1197,15 +1202,15 @@
 <!-- ══════════════════════════════════════
      QUICK CREATE - SECURITY PROFILE
 ══════════════════════════════════════ -->
-<div class="modal fade" id="quickCreateProfileModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false">
+<div class="modal fade" id="quickCreateProfileModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="false" aria-labelledby="quickCreateProfileModalTitle">
     <div class="modal-dialog modal-dialog-centered" style="max-width:420px;">
         <div class="modal-content">
             <div class="modal-header">
                 <div>
                     <div class="nr-badge" style="margin-bottom:0.3rem;">QUICK CREATE</div>
-                    <h5 class="modal-title">New Security Profile</h5>
+                    <h2 class="modal-title h5" id="quickCreateProfileModalTitle">New Security Profile</h2>
                 </div>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <div class="mb-3">
@@ -1247,15 +1252,15 @@
 <!-- ══════════════════════════════════════
      QUICK CREATE - VARIABLE MAPPING
 ══════════════════════════════════════ -->
-<div class="modal fade" id="quickCreateMappingModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="true">
+<div class="modal fade" id="quickCreateMappingModal" tabindex="-1" data-bs-backdrop="static" data-bs-keyboard="true" aria-labelledby="quickCreateMappingModalTitle">
     <div class="modal-dialog modal-dialog-centered" style="max-width:400px;">
         <div class="modal-content">
             <div class="modal-header">
                 <div>
                     <div class="nr-badge" style="margin-bottom:0.3rem;">QUICK CREATE</div>
-                    <h5 class="modal-title">New Variable Mapping</h5>
+                    <h2 class="modal-title h5" id="quickCreateMappingModalTitle">New Variable Mapping</h2>
                 </div>
-                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
                 <div class="mb-3">
@@ -1930,6 +1935,9 @@ document.querySelectorAll('.inv-card').forEach(card => {
 
     card.addEventListener('mouseenter', () => showTooltip(card, device));
     card.addEventListener('mouseleave', hideTooltip);
+    const openBtn = card.querySelector('.inv-card-open');
+    openBtn.addEventListener('focus', () => showTooltip(card, device));
+    openBtn.addEventListener('blur', hideTooltip);
 
     card.addEventListener('click', () => {
         hideTooltip();

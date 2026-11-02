@@ -40,8 +40,8 @@
       <i class="bi bi-bar-chart-line-fill" style="color:#00bcd4; font-size:1rem;"></i>
       <span class="nr-badge" style="margin-bottom:0;">ROLLOUT INTELLIGENCE</span>
     </div>
-    <h4 style="font-family:'Inter',sans-serif; font-weight:600; font-size:1.25rem;
-               color:#e0e0e0; margin:0 0 0.2rem;">Performance Analytics</h4>
+    <h2 class="h4" style="font-family:'Inter',sans-serif; font-weight:600; font-size:1.25rem;
+               color:#e0e0e0; margin:0 0 0.2rem;">Performance Analytics</h2>
     <div style="font-family:'JetBrains Mono',monospace; font-size:0.7rem; color:var(--nr-text-muted);">
       {% if current_user.role == 'admin' and selected_user != 'me' %}
         Viewing: <span class="nr-accent">{{ selected_username }}</span>
@@ -57,7 +57,7 @@
   {% if current_user.role == 'admin' %}
   <div class="d-flex align-items-center gap-2" style="margin-top:0.25rem;">
     <span class="nr-label" style="margin:0; white-space:nowrap; font-size: 0.75rem;">VIEW AS</span>
-    <select onchange="applyScope(this.value)"
+    <select onchange="applyScope(this.value)" aria-label="View as"
             style="background:#111; border:1px solid #2a2a2a; border-radius:6px;
                    color:#ccc; font-size:0.78rem; padding:0.3rem 0.6rem;
                    font-family:'JetBrains Mono',monospace; cursor:pointer; outline:none;">
@@ -319,6 +319,8 @@ $(function() {
       { type:'begins_with',      nb_inputs:1, multiple:false, apply_to:['string'], label:'starts with' },
     ]
   });
+
+  nrNameQueryBuilder(document.getElementById('queryBuilder'));
 
   $('#queryBuilder')
     .on('afterAddRule.queryBuilder', (e, rule) => injectFieldIcon(rule))

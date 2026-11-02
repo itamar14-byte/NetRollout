@@ -7,9 +7,9 @@
 <div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
   <div>
     <div class="nr-badge" style="margin-bottom:0.35rem;">ACCESS</div>
-    <h4 class="mb-0 nr-page-title">
+    <h2 class="h4 mb-0 nr-page-title">
       Live Sessions
-    </h4>
+    </h2>
   </div>
   <div class="d-flex align-items-center gap-2">
     <span style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:var(--nr-text-muted); letter-spacing:0.5px;">
@@ -61,7 +61,7 @@
           <th>Role</th>
           <th>Auth</th>
           <th>Logged In</th>
-          <th></th>
+          <th><span class="visually-hidden">Actions</span></th>
         </tr>
       </thead>
       <tbody>
@@ -85,7 +85,7 @@
           </td>
           <td style="text-align:right;">
             {% if s.user_id == current_user.id | string %}
-            <span class="nr-mono-caption nr-faint" title="Your own session - use Sign out">you</span>
+            <span class="nr-mono-caption" title="Your own session - use Sign out">you</span>
             {% else %}
             <button class="btn btn-outline-danger btn-sm kick-btn"
                     style="font-size: 0.75rem; padding:0.18rem 0.6rem;"
@@ -133,7 +133,7 @@
           <th>Role</th>
           <th>Auth</th>
           <th>Logged In</th>
-          <th></th>
+          <th><span class="visually-hidden">Actions</span></th>
         </tr>
       </thead>
       <tbody>
@@ -157,7 +157,7 @@
           </td>
           <td style="text-align:right;">
             {% if s.user_id == current_user.id | string %}
-            <span class="nr-mono-caption nr-faint" title="Your own session - use Sign out">you</span>
+            <span class="nr-mono-caption" title="Your own session - use Sign out">you</span>
             {% else %}
             <button class="btn btn-outline-danger btn-sm kick-btn"
                     style="font-size: 0.75rem; padding:0.18rem 0.6rem;"

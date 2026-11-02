@@ -292,10 +292,12 @@
 
     </style>
 {% include "_escape_js.html" %}
+{% include "_a11y_js.html" %}
 {% include "_rollouts_table_js.html" %}
 {% include "_op_widgets_js.html" %}
 </head>
 <body>
+<a class="nr-skip-link" href="#main">Skip to content</a>
 
 <!-- ══════════════════════════════════════
      SIDEBAR
@@ -306,7 +308,8 @@
         <span class="sb-brand">
             <img src="{{ url_for('static', filename='logo.svg') }}" alt="NetRollout">
         </span>
-        <button class="sb-toggle" id="sbToggle" title="Toggle sidebar">&#9776;</button>
+        <button type="button" class="sb-toggle" id="sbToggle" title="Toggle sidebar" aria-label="Toggle sidebar"
+                aria-controls="opSidebar" aria-expanded="false">&#9776;</button>
     </div>
 
     <div class="sb-nav">
@@ -315,14 +318,14 @@
         <div class="sb-section">Operation</div>
 
         <a href="{{ url_for('rollout.new_rollout') }}"
-           class="sb-link {% if active_section == 'rollout' %}active{% endif %}"
+           class="sb-link {% if active_section == 'rollout' %}active{% endif %}"{% if active_section == 'rollout' %} aria-current="page"{% endif %}
            title="Launch Rollout">
             <i class="bi bi-send sb-icon"></i>
             <span class="sb-label">Launch Rollout</span>
         </a>
 
         <a href="{{ url_for('jobs.active_jobs') }}"
-           class="sb-link {% if active_section == 'active_jobs' %}active{% endif %}"
+           class="sb-link {% if active_section == 'active_jobs' %}active{% endif %}"{% if active_section == 'active_jobs' %} aria-current="page"{% endif %}
            title="Active Jobs">
             <i class="bi bi-activity sb-icon"></i>
             <span class="sb-label">Active Jobs</span>
@@ -333,28 +336,28 @@
         <div class="sb-section">Management</div>
 
         <a href="{{ url_for('inventory.inventory') }}"
-           class="sb-link {% if active_section == 'inventory' %}active{% endif %}"
+           class="sb-link {% if active_section == 'inventory' %}active{% endif %}"{% if active_section == 'inventory' %} aria-current="page"{% endif %}
            title="Inventory">
             <i class="bi bi-server sb-icon"></i>
             <span class="sb-label">Inventory</span>
         </a>
 
         <a href="{{ url_for('security.security') }}"
-           class="sb-link {% if active_section == 'security' %}active{% endif %}"
+           class="sb-link {% if active_section == 'security' %}active{% endif %}"{% if active_section == 'security' %} aria-current="page"{% endif %}
            title="Security Profiles">
             <i class="bi bi-shield-lock sb-icon"></i>
             <span class="sb-label">Security Profiles</span>
         </a>
 
         <a href="{{ url_for('mappings.mappings') }}"
-           class="sb-link {% if active_section == 'mappings' %}active{% endif %}"
+           class="sb-link {% if active_section == 'mappings' %}active{% endif %}"{% if active_section == 'mappings' %} aria-current="page"{% endif %}
            title="Variable Mappings">
             <i class="bi bi-braces sb-icon"></i>
             <span class="sb-label">Variable Mappings</span>
         </a>
 
         <a href="{{ url_for('properties.properties') }}"
-           class="sb-link {% if active_section == 'properties' %}active{% endif %}"
+           class="sb-link {% if active_section == 'properties' %}active{% endif %}"{% if active_section == 'properties' %} aria-current="page"{% endif %}
            title="Property Definitions">
             <i class="bi bi-sliders sb-icon"></i>
             <span class="sb-label">Properties</span>
@@ -365,21 +368,21 @@
         <div class="sb-section">Observability</div>
 
         <a href="{{ url_for('jobs.dashboard') }}"
-           class="sb-link {% if active_section == 'dashboard' %}active{% endif %}"
+           class="sb-link {% if active_section == 'dashboard' %}active{% endif %}"{% if active_section == 'dashboard' %} aria-current="page"{% endif %}
            title="Dashboard">
             <i class="bi bi-speedometer2 sb-icon"></i>
             <span class="sb-label">Dashboard</span>
         </a>
 
         <a href="{{ url_for('jobs.results') }}"
-           class="sb-link {% if active_section == 'results_30d' %}active{% endif %}"
+           class="sb-link {% if active_section == 'results_30d' %}active{% endif %}"{% if active_section == 'results_30d' %} aria-current="page"{% endif %}
            title="Results">
             <i class="bi bi-clock-history sb-icon"></i>
             <span class="sb-label">Results</span>
         </a>
 
         <a href="{{ url_for('analytics.analytics') }}"
-           class="sb-link {% if active_section == 'analytics' %}active{% endif %}"
+           class="sb-link {% if active_section == 'analytics' %}active{% endif %}"{% if active_section == 'analytics' %} aria-current="page"{% endif %}
            title="Analytics">
             <i class="bi bi-bar-chart-line sb-icon"></i>
             <span class="sb-label">Analytics</span>
@@ -391,14 +394,14 @@
     <!-- Sidebar footer -->
     <div class="sb-footer">
         {% if current_user.role == "admin" %}
-        <div id="sbRestartBtn" class="sb-link" title="Restart server"
+        <button type="button" id="sbRestartBtn" class="sb-link nr-sb-button" title="Restart server"
              style="cursor:pointer; gap:0.6rem; padding:0.35rem 0.5rem; color:var(--nr-text-muted); transition:color 0.15s;"
              onmouseenter="this.style.color='#ef9a9a'"
              onmouseleave="this.style.color='var(--nr-text-muted)'"
              onclick="nrRestartClick()">
             <i class="bi bi-arrow-clockwise sb-icon" style="font-size:0.82rem;"></i>
             <span class="sb-label" style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; letter-spacing:1px;">RESTART</span>
-        </div>
+        </button>
         {% endif %}
         <div class="sb-link sb-disabled" style="font-size: 0.75rem; color:var(--nr-text-muted); gap:0.6rem; padding: 0.3rem 0.5rem;">
             <i class="bi bi-circle-fill sb-icon" style="font-size:0.4rem; color:#1e3a3e;"></i>
@@ -414,7 +417,7 @@
 <div id="opMain">
 
     <!-- Topbar -->
-    <div class="op-topbar">
+    <header class="op-topbar">
         <div class="d-flex align-items-center gap-3" style="min-width:0;">
             <button type="button" class="nr-phone-menu" id="phoneMenu" aria-label="Menu"
                     aria-controls="opSidebar">&#9776;</button>
@@ -422,16 +425,17 @@
                  alt="NetRollout" class="op-topbar-logo"
                  style="height:16px; width:auto; opacity:0.85;">
             <span class="op-topbar-sep" style="width:1px; height:14px; background:#2a2a2a; flex-shrink:0;"></span>
-            <div class="op-topbar-title">
+            <h1 class="op-topbar-title nr-topbar-heading">
                 {% block page_title %}{% endblock %}
-            </div>
+            </h1>
         </div>
         <div class="d-flex align-items-center gap-3">
             {% with view="ops" %}{% include "_view_switch.html" %}{% endwith %}
             {% include "_user_menu.html" %}
         </div>
-    </div>
+    </header>
 
+    <main id="main" class="nr-main" tabindex="-1">
     <!-- Flash messages -->
     <div class="px-3 px-md-4 pt-3">
         {% include '_drain_banner.html' %}
@@ -448,6 +452,7 @@
     <div class="op-content">
         {% block operator_content %}{% endblock %}
     </div>
+    </main>
 
     <!-- Footer -->
     {% include "_footer.html" %}
@@ -478,6 +483,9 @@
     try {
         if (!phone.matches && localStorage.getItem("opSidebarExpanded") === "true") expandSidebar();
     } catch (e) { /* none */ }
+
+    // the ☰ buttons say whether the sidebar is open, however it was opened
+    nrSyncExpanded(sidebar, [toggle, document.getElementById("phoneMenu")]);
 
     document.getElementById("phoneMenu").addEventListener("click", function(e) {
         e.stopPropagation();

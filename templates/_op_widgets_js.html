@@ -42,7 +42,8 @@ function nrSetReach(el, status) {
                    unknown: 'Reachability unknown'}[state] + nrReachWhy(status);
     const when  = status ? ' · checked ' + nrAgo(status.checked_at) : '';
     el.className = 'reach reach--' + state;
-    el.innerHTML = '<i class="bi ' + icon + '"></i>';
+    el.innerHTML = '<i class="bi ' + icon + '" aria-hidden="true"></i>';
+    el.setAttribute('role', 'img');
     el.setAttribute('aria-label', label);
     el.title = label + ' from NetRollout' + when;
     return state;
@@ -56,7 +57,8 @@ function nrReachWhy(status) {
 
 function nrReachChecking(el) {
     el.className = 'reach reach--checking';
-    el.innerHTML = '<i class="bi bi-arrow-repeat"></i>';
+    el.innerHTML = '<i class="bi bi-arrow-repeat" aria-hidden="true"></i>';
+    el.setAttribute('role', 'img');
     el.setAttribute('aria-label', 'Checking reachability');
     el.title = 'Checking reachability…';
 }

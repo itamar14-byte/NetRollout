@@ -9,7 +9,7 @@
     <div class="d-flex align-items-center justify-content-between mb-3">
       <div>
         <span class="nr-badge">Admin</span>
-        <h4 class="mt-2 mb-0" style="color:#e0e0e0; font-family:'Inter',sans-serif;">Audit Logs</h4>
+        <h2 class="h4 mt-2 mb-0" style="color:#e0e0e0; font-family:'Inter',sans-serif;">Audit Logs</h2>
       </div>
       <span style="font-family:'JetBrains Mono',monospace; font-size:0.72rem; color:var(--nr-text-muted);">
         {{ entries|length }} result{% if entries|length != 1 %}s{% endif %}{% if entries|length == page_limit %} shown (the newest {{ page_limit }} - Export CSV has them all){% endif %}
@@ -18,17 +18,17 @@
 
     <!-- Filter bar -->
     <form method="GET" action="{{ url_for('admin_audit.admin_audit') }}" class="d-flex flex-wrap gap-2 mb-4" id="filterForm">
-      <input type="text" name="actor" value="{{ filter_actor }}" placeholder="Actor username…"
+      <input type="text" name="actor" value="{{ filter_actor }}" placeholder="Actor username…" aria-label="Actor username"
              class="form-control form-control-sm" style="max-width:180px;">
 
-      <select name="action" class="form-select form-select-sm" style="max-width:220px;">
+      <select name="action" class="form-select form-select-sm" style="max-width:220px;" aria-label="Action">
         <option value="">All actions</option>
         {% for a in distinct_actions %}
           <option value="{{ a }}" {% if filter_action == a %}selected{% endif %}>{{ a }}</option>
         {% endfor %}
       </select>
 
-      <select name="success" class="form-select form-select-sm" style="max-width:140px;">
+      <select name="success" class="form-select form-select-sm" style="max-width:140px;" aria-label="Outcome">
         <option value="" {% if filter_success == '' %}selected{% endif %}>All outcomes</option>
         <option value="true" {% if filter_success == 'true' %}selected{% endif %}>Success</option>
         <option value="false" {% if filter_success == 'false' %}selected{% endif %}>Failed</option>
@@ -68,7 +68,7 @@
             <th>Object</th>
             <th style="width:80px;">Status</th>
             <th style="width:110px;">IP</th>
-            <th style="width:32px;"></th>
+            <th style="width:32px;"><span class="visually-hidden">Details</span></th>
           </tr>
         </thead>
         <tbody>
@@ -162,14 +162,14 @@
 </div>
 
 <!-- Detail modal -->
-<div class="modal fade" id="detailModal" tabindex="-1">
+<div class="modal fade" id="detailModal" tabindex="-1" aria-labelledby="detailModalTitle">
   <div class="modal-dialog modal-lg">
     <div class="modal-content">
       <div class="modal-header" style="border-bottom:1px solid #222;">
-        <h6 class="modal-title" style="font-family:'JetBrains Mono',monospace; color:#00bcd4;" id="detailModalTitle">
+        <h2 class="modal-title h6" style="font-family:'JetBrains Mono',monospace; color:#00bcd4;" id="detailModalTitle">
           Entry Detail
-        </h6>
-        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+        </h2>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
       <div class="modal-body">
         <table class="table table-sm mb-3" style="font-size:0.82rem;">
@@ -207,7 +207,7 @@
   }
   .action-ns--auth     { background: rgba(100,180,255,0.1); color:#64b4ff; border:1px solid rgba(100,180,255,0.2); }
   .action-ns--rollout  { background: rgba(0,188,212,0.1);  color:#00bcd4; border:1px solid rgba(0,188,212,0.2); }
-  .action-ns--inventory{ background: rgba(160,160,160,0.08); color:#888; border:1px solid #2a2a2a; }
+  .action-ns--inventory{ background: rgba(160,160,160,0.08); color:var(--nr-text-muted); border:1px solid #2a2a2a; }
   .action-ns--security_profile { background: rgba(255,224,130,0.1); color:#ffe082; border:1px solid rgba(255,224,130,0.2); }
   .action-ns--mapping  { background: rgba(179,157,219,0.1); color:#b39ddb; border:1px solid rgba(179,157,219,0.2); }
   .action-ns--user     { background: rgba(255,204,128,0.1); color:#ffcc80; border:1px solid rgba(255,204,128,0.2); }
