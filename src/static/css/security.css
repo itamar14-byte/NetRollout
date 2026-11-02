@@ -1,0 +1,133 @@
+/* Security Profiles - see templates/security.html. */
+.profile-card {
+    position: relative;
+    background: #1a1a1a;
+    border: 1px solid #222;
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: 0 0 0 1px rgba(0,188,212,0.08), 0 16px 48px rgba(0,0,0,0.4);
+    transition: box-shadow 0.25s, border-color 0.25s;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+.profile-card:hover {
+    box-shadow: 0 0 0 1px rgba(0,188,212,0.18), 0 20px 60px rgba(0,0,0,0.5);
+    border-color: #2a2a2a;
+}
+
+.profile-card-body {
+    padding: 1.5rem 1.5rem 1rem;
+    flex: 1;
+}
+
+.profile-card-footer {
+    padding: 0.75rem 1.5rem;
+    border-top: 1px solid #1e1e1e;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(0,0,0,0.15);
+}
+
+.profile-title {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.95rem;
+    font-weight: 700;
+    color: #e0e0e0;
+    margin-bottom: 0.1rem;
+}
+
+.profile-subtitle {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.75rem;
+    color: var(--nr-text-muted);
+}
+
+.profile-field {
+    margin-bottom: 0.9rem;
+}
+
+.password-dots {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.72rem;
+    color: var(--nr-text-muted);
+    letter-spacing: 3px;
+}
+
+.secret-none {
+    font-size: 0.75rem;
+    color: var(--nr-text-muted);
+    font-style: italic;
+}
+
+/* Card action links */
+.card-action-link {
+    font-family: 'Inter', sans-serif;
+    font-size: 0.75rem;
+    color: var(--nr-text-muted);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    transition: color 0.15s;
+    cursor: pointer;
+    background: none;
+    border: none;
+    padding: 0;
+}
+.card-action-link:hover { color: #00bcd4; }
+.card-action-link.danger:hover { color: #ef5350; }
+
+/* Icon action buttons */
+.btn-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    border: 1px solid transparent;
+    background: transparent;
+}
+.btn-icon.edit   { color: var(--nr-text-faint); border-color: #1e1e1e; }
+.btn-icon.edit:hover { color: #00bcd4; background: rgba(0,188,212,0.08); border-color: rgba(0,188,212,0.2); }
+.btn-icon.delete { color: var(--nr-text-faint); border-color: #1e1e1e; }
+.btn-icon.delete:hover { color: #ef5350; background: rgba(239,83,80,0.08); border-color: rgba(239,83,80,0.2); }
+
+/* Password input group: .pw-group / .pw-toggle are _password_eye.html's */
+
+/* Empty state */
+.empty-state {
+    text-align: center;
+    padding: 4rem 2rem;
+    color: var(--nr-text-muted);
+}
+.empty-state > i { font-size: 3rem; margin-bottom: 1rem; display: block; color: var(--nr-text-faint); }
+.empty-state p { font-size: 0.88rem; color: var(--nr-text-muted); margin-bottom: 1.5rem; }
+
+/* Test result area */
+.test-result {
+    border-radius: 6px;
+    padding: 0.65rem 0.9rem;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    margin-top: 0.75rem;
+    display: none;
+}
+.test-result.success {
+    background: rgba(76,175,80,0.08);
+    border: 1px solid rgba(76,175,80,0.2);
+    color: #a5d6a7;
+    display: block;
+}
+.test-result.error {
+    background: rgba(239,83,80,0.08);
+    border: 1px solid rgba(239,83,80,0.2);
+    color: #ef9a9a;
+    display: block;
+}
+
