@@ -233,3 +233,9 @@ function exportCsv() {
   a.href = url; a.download = `netrollout_audit_${Date.now()}.csv`;
   a.click(); URL.revokeObjectURL(url);
 }
+
+// What this page's elements name in data-nr-<event> (js/events.js)
+nrHandlers({
+    runQuery: () => { runQuery(); },
+    exportCsv: () => { exportCsv(); },
+});

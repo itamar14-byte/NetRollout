@@ -30,7 +30,7 @@
   {% if current_user.role == 'admin' %}
   <div class="d-flex align-items-center gap-2" style="margin-top:0.25rem;">
     <span class="nr-label" style="margin:0; white-space:nowrap; font-size: 0.75rem;">VIEW AS</span>
-    <select onchange="applyScope(this.value)" aria-label="View as"
+    <select data-nr-change="applyScope" aria-label="View as"
             style="background:#111; border:1px solid #2a2a2a; border-radius:6px;
                    color:#ccc; font-size:0.78rem; padding:0.3rem 0.6rem;
                    font-family:'JetBrains Mono',monospace; cursor:pointer; outline:none;">
@@ -167,11 +167,11 @@
 
     <!-- Actions -->
     <div class="d-flex gap-2 align-items-center flex-wrap">
-      <button class="btn btn-primary btn-sm" onclick="runQuery()"
+      <button class="btn btn-primary btn-sm" data-nr-click="runQuery"
               style="font-family:'JetBrains Mono',monospace; font-size:0.76rem; letter-spacing:0.5px;">
         <i class="bi bi-play-fill me-1"></i>Run Query
       </button>
-      <button class="btn btn-sm" onclick="exportCsv()"
+      <button class="btn btn-sm" data-nr-click="exportCsv"
               style="background:none; border:1px solid #2a2a2a; color:var(--nr-text-muted); font-size:0.78rem;"
               title="Export CSV"
               data-nr-mouseenter="nrHover" data-nr-hover-style="border-color:#444; color:#aaa"
