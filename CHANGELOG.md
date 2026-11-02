@@ -18,6 +18,14 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 - **The web app works with the keyboard and a screen reader** (WCAG 2.2 AA, checked page by page with axe-core). Restart server, opening a device in Inventory, a job in Results, the PostgreSQL / Redis cards, LDAP's bind type and server rows, the users table's sorting and the My Jobs / Other Users sections could only be clicked with a mouse; they now take Tab, Enter and Space. Every page has a "Skip to content" link, a main heading and landmarks; dialogs, close buttons, the 2FA code boxes, checkboxes and filters have names; expanders say whether they're open; reachability icons are announced. Text that was too faint to read (User Management's selection hint, the system properties, a few labels) now has enough contrast, and the show-password eye is a bigger target. Nothing else looks different.
 
+- **A signed-in user gets the "service unavailable" page while PostgreSQL is down**, with its styles. They got a bare "Internal Server Error": showing the page tried to load their account from the database that was down, and so did every style sheet and script the page asked for.
+- **Server Management's LDAP panel: no script error when Save is clicked while Fetch DN is still running** (its answer looked for a panel that had just been drawn again).
+
+### Security
+
+- **A Content-Security-Policy on every page**: the browser runs only NetRollout's own script files - no inline script, no `eval`, nothing from another site - so text that slipped through unescaped still couldn't run as a script. A page's scripts and styles are files of their own now; a browser reports anything the policy blocks, and the server logs it (`Content-Security-Policy blocked:`).
+- **The web app needs no internet access**: Bootstrap, jQuery, QueryBuilder, the fonts and the vendor logos come with NetRollout instead of from public CDNs (each with its licence and checksum). On a network without internet the pages had no styles, icons or logos. Installing and updating still download.
+
 ## [1.1.2] - 2026-10-26
 
 Security hardening from GitHub's code scanning. An installed 1.1.x updates from NetRollout Manager (**Upgrade**) or Linux's `netrollout.sh upgrade`, keeping everything; a before-upgrade backup is made first. No database change.
