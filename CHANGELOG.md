@@ -8,6 +8,7 @@ The format follows [Keep a Changelog 1.1.0](https://keepachangelog.com/en/1.1.0/
 
 ### Added
 
+- **Detect the platform in Add Device and Edit Device**: the **Detect** button signs in with your security profile and fills DEVICE TYPE in from what the device says about itself - and an empty label with its hostname - showing the line it was recognised by. All 12 platforms, across their versions: IOS 12.x to 15.x, IOS-XE 3.x to 17.x, IOS-XR, NX-OS, EOS, Junos (Evolved too), AOS-CX, ProCurve and ArubaOS-Switch, FortiOS, PAN-OS firewalls and Panorama, Comware 5 and 7, Gaia (from clish or expert). Read-only commands only, usually one, a few seconds; it never guesses - an unsupported platform (ASA, Firepower, ACI, MDS, Huawei) is named, anything else left to you.
 - **Test a token on Variable Mappings**: choose a device and type a token, or a whole command line, to see what that device would get in your rollout - each token's value and the property it comes from, or why it can't be filled in (no such token, not assigned to the device, no value). Nothing is sent to the device. Until now a token that couldn't be filled in showed only when launching a rollout.
 
 ### Changed

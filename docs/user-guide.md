@@ -182,10 +182,19 @@ Above the devices, three filters narrow the list as you type: **Name** and **Add
    - **LABEL** (required): a name, such as `Core-SW-01`.
    - **ADDRESS**: an IPv4 or IPv6 address, such as `192.168.1.1` or `2001:db8::1`, or a hostname, such as `core1.corp.local`. A name alone, such as `core1`, gets the **Device DNS suffix** your administrator set in System Settings. NetRollout looks names up in the DNS its server uses. A name that doesn't resolve is saved anyway, with a warning: a rollout to it fails until it does. If the address, or the address a name resolves to, is already used by another device you see on the same port, NetRollout says so.
    - **Port**: the SSH port, 1 to 65535.
-   - **DEVICE TYPE**: the platform. See [Supported platforms](#supported-platforms).
+   - **DEVICE TYPE**: the platform. See [Supported platforms](#supported-platforms). Or let **Detect** fill it in (below).
    - **YOUR SECURITY PROFILE**: one of your profiles, which NetRollout logs in with when you roll out to the device. You can save the device without one and link it later. You can pick one or select **Create New Profile**. Without one, the device shows **ACTION NEEDED** and you can't roll out to it.
 3. Optionally, select **Test Connection** to check that NetRollout can log in.
 4. Save.
+
+**Detect** (beside DEVICE TYPE) asks the device itself which platform it runs. It's available once the address, the port and your security profile are filled in; until then it's greyed out, and its tooltip says what's missing. NetRollout signs in with your profile and sends one to five read-only commands (`show version`, `get system status`, `show system info`, `display version`, `show version all`), usually one. It recognises each platform by the product name the device prints, such as `Cisco IOS XE Software` or `Product version Check Point Gaia`, and never guesses:
+
+- **Found:** DEVICE TYPE is filled in, with the line it was recognised by under it, for example "Detected: Cisco IOS-XE - Cisco IOS XE Software, Version 17.03.04". An empty LABEL gets the device's hostname; a label you typed is never replaced.
+- **A platform NetRollout doesn't support** (a Cisco ASA or Firepower, ACI, MDS, Huawei, a Linux shell): it says what it found, and you choose.
+- **Nothing recognised**, or a login disclaimer the device asks you to accept: it says so, and you choose. NetRollout never accepts a disclaimer for you.
+- **Couldn't sign in:** the same messages as Test sign-in.
+
+Check the result before saving: the platform decides how NetRollout saves and verifies on the device. Detect takes a few seconds, at most about 45. The sign-in shows in the device's log and on your AAA server like any other. Detect isn't offered on a global device you can't edit.
 
 Administrators also see a **Global device** switch, which shares the device with all users. Switching it off on a global device makes it yours and hides it from everyone else. Their security profile, attribute values and variable mappings on it are deleted, and switching it on again doesn't bring them back. The window warns you, and Save becomes a red **Confirm**.
 
