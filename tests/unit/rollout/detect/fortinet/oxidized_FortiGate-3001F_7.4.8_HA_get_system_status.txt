@@ -1,0 +1,8 @@
+get system status
+Version: FortiGate-3001F v7.4.8,build2795,250523 (GA.M)
+First GA patch build date: 230509
+Current Security Level: High
+Firmware Signature: certified
+Virus-DB: 1.00000(2018-04-09 18:07)
+Serial-Number: FG3K100000000000
+--More-- 

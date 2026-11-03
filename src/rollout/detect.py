@@ -35,7 +35,9 @@ NEIGHBOURS: dict[str, Identity] = {
 	"cisco_asa": Identity("show version", text("Cisco Adaptive Security Appliance Software"),
 	                      unless=text("Threat Defense")),
 	"huawei": Identity("display version", text("Huawei Versatile Routing Platform")),
-	"linux": Identity("show version", text("command not found")),
+	# bash / zsh "command not found", dash / busybox ash / ksh "show: not found",
+	# Ubuntu's handler "Command 'show' not found"
+	"linux": Identity("show version", text("command not found", "show: not found", "Command 'show' not found")),
 }
 # …and what to call them ("Detected Cisco ASA, which NetRollout doesn't support")
 NEIGHBOUR_NAMES = {"cisco_aci": "Cisco ACI", "cisco_asa": "Cisco ASA",

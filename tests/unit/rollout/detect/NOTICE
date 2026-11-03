@@ -439,3 +439,50 @@ none/show_version__hp_procurve_show_version.raw
 
 paloalto_panos/show_system_info__paloalto_panos_show_system_info.raw
     https://github.com/networktocode/ntc-templates/blob/master/tests/paloalto_panos/show_system_info/paloalto_panos_show_system_info.raw
+
+Added 2026-11-03 (the follow-up research):
+
+cisco_nxos/oxidized_C93180YC-FX3J_10.4.5_show_version.txt
+    https://github.com/ytti/oxidized/blob/master/spec/model/data/nxos%23C93180YC-FX3J_10.4.5%23simulation.yaml
+
+cisco_nxos/oxidized_N5548_7.3.13_show_version.txt
+    https://github.com/ytti/oxidized/blob/master/spec/model/data/nxos%23N5548_7.3.13%23simulation.yaml
+
+cisco_xe/oxidized_C9200L-24P-4G_17.09.04a_show_version.txt
+    https://github.com/ytti/oxidized/blob/master/spec/model/data/ios%23C9200L-24P-4G_17.09.04a%23simulation.yaml
+
+cisco_xe/oxidized_C9800-L-F-K9_17.06.05_show_version.txt
+    https://github.com/ytti/oxidized/blob/master/spec/model/data/ios%23C9800-L-F-K9_17.06.05%23simulation.yaml
+
+cisco_xe/oxidized_asr920_16.8.1b_show_version.txt
+    https://github.com/ytti/oxidized/blob/master/spec/model/data/ios%23asr920_16.8.1b%23simulation.yaml
+
+fortinet/oxidized_FortiGate-91G_7.4.7_get_system_status.txt
+    https://github.com/ytti/oxidized/blob/master/spec/model/data/fortigate%23FortiGate-91G_7.4.7%23simulation.yaml
+
+fortinet/oxidized_FortiGate-3001F_7.4.8_HA_get_system_status.txt
+    https://github.com/ytti/oxidized/blob/master/spec/model/data/fortigate%23FortiGate-3001F_7.4.8_HA%23simulation.yaml
+
+juniper_junos/oxidized_qfx10002-72q_23.4R2.13_show_version.txt
+    https://github.com/ytti/oxidized/blob/master/spec/model/data/junos%23qfx10002-72q_23.4R2.13%23simulation.yaml
+
+juniper_junos/oxidized_srx300_22.4_show_version.txt
+    https://github.com/ytti/oxidized/blob/master/spec/model/data/junos%23srx300_22.4%23simulation.yaml
+
+linux/bash_login_debian12.txt
+    NetRollout's own capture (2026-11-03): a shell's reply to "show version" in a Debian 12 / Alpine container
+
+linux/bash_nonlogin_debian12.txt
+    NetRollout's own capture (2026-11-03): a shell's reply to "show version" in a Debian 12 / Alpine container
+
+linux/busybox_ash_alpine.txt
+    NetRollout's own capture (2026-11-03): a shell's reply to "show version" in a Debian 12 / Alpine container
+
+linux/busybox_ash_login_alpine.txt
+    NetRollout's own capture (2026-11-03): a shell's reply to "show version" in a Debian 12 / Alpine container
+
+linux/dash_login_debian12.txt
+    NetRollout's own capture (2026-11-03): a shell's reply to "show version" in a Debian 12 / Alpine container
+
+linux/dash_sh_debian12.txt
+    NetRollout's own capture (2026-11-03): a shell's reply to "show version" in a Debian 12 / Alpine container

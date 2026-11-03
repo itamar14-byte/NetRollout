@@ -1,0 +1,51 @@
+show version
+Cisco Nexus Operating System (NX-OS) Software
+TAC support: http://www.cisco.com/tac
+Documents: http://www.cisco.com/en/US/products/ps9372/tsd_products_support_series_home.html
+Copyright (c) 2002-2023, Cisco Systems, Inc. All rights reserved.
+The copyrights to certain works contained herein are owned by
+other third parties and are used and distributed under license.
+Some parts of this software are covered under the GNU Public
+License. A copy of the license is available at
+http://www.gnu.org/licenses/gpl.html.
+
+Software
+  BIOS:      version 3.6.0
+  Power Sequencer Firmware: 
+             Module 1: v3.0
+             Module 2: v2.0
+  Microcontroller Firmware:        version v1.2.0.1
+  QSFP Microcontroller Firmware:   
+             Module not detected
+  CXP Microcontroller Firmware:   
+             Module not detected
+  kickstart: version 7.3(13)N1(1)
+  system:    version 7.3(13)N1(1)
+  BIOS compile time:       05/09/2012
+  kickstart image file is: bootflash:///n5000-uk9-kickstart.7.3.13.N1.1.bin
+  kickstart compile time:  2/7/2023 2:00:00 [02/07/2023 13:42:03]
+  system image file is:    bootflash:///n5000-uk9.7.3.13.N1.1.bin
+  system compile time:     2/7/2023 2:00:00 [02/07/2023 16:03:19]
+
+
+Hardware
+  cisco Nexus5548 Chassis ("O2 32X10GE/Modular Universal Platform Supervisor")
+  Intel(R) Xeon(R) CPU         with 8253792 kB of memory.
+  Processor Board ID FOC00000001
+
+  Device name: TEST-12345
+  bootflash:    2007040 kB
+
+Kernel uptime is 68 day(s), 19 hour(s), 44 minute(s), 42 second(s)
+
+Last reset at 132520 usecs after  Mon Jan 19 00:53:59 2026
+
+  Reason: Disruptive upgrade
+  System version: 7.3(9)N1(1)
+  Service: 
+
+plugin
+  Core Plugin, Ethernet Plugin
+
+Active Package(s)
+TEST-12345# 

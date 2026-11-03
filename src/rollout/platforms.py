@@ -824,8 +824,11 @@ _SHOW_VERSION = "show version"
 _USER_AT = re.compile(r"^[^@\s]+@\S+?[>#%]\s*$")
 # IOS / IOS-XE / IOS-XR: "R1 uptime is 2 weeks" (a stack's "Switch uptime" has no "is")
 _UPTIME_NAME = re.compile(r"^(?P<name>\S+) uptime is ", re.MULTILINE)
-# Junos root's Unix shell: "root@srx:~ #", "root@srx%", "root@:RE:0%"
-_JUNOS_ROOT_SHELL = re.compile(r"^root@[^\s>]*(?::\S*\s*#|\s*%)\s*$")
+# Junos root's Unix shell: "root@srx:~ #", "root@srx%", "root@:RE:0%", or a
+# bare "%" (Netmiko's driver takes it for the shell too). A Linux root prompt
+# ("root@box:/# ") looks the same: its reply to "cli -c" is claimed by nothing
+# or by the linux neighbour, and the plain probes follow
+_JUNOS_ROOT_SHELL = re.compile(r"^(?:root@[^\s>]*(?::\S*\s*#|\s*%)|%)\s*$")
 
 PLATFORMS: dict[str, Platform] = {
 	# IOS, IOS-XE, NX-OS: "show running-config all" verified in the lab (IOS
@@ -934,8 +937,9 @@ PLATFORMS: dict[str, Platform] = {
 		sources={"read": "doc", "left_out": "doc", "saved": "doc", "layout": "doc", "navigation": "doc",
 		         "removal": "doc", "exec": "doc", "defaults": "doc", "events": "doc"},
 		# CMW5 and CMW7, HP, HPE and H3C builds ("H3C Comware Platform Software"
-		# on CMW5) - all print "Comware Software, Version"
-		identity=Identity("display version", text("Comware Software, Version"),
+		# on CMW5) - all print "Comware Software, Version"; 3Com's CMW5 builds
+		# "Software Version 5.20 Release" (a 4800G - one forum transcription)
+		identity=Identity("display version", text("Comware Software, Version", "Software Version 5.20 Release"),
 		                  prompt=re.compile(r"^(?:RBM_.)?<[^>\s]+>\s*$")),
 		prompt_name=NAME_COMWARE),
 	# configuration mode's own non-configuration commands: run, show, status,

@@ -1,0 +1,6 @@
+bash: cannot set terminal process group (-1): Inappropriate ioctl for device
+bash: no job control in this shell
+root@8b9bba0048cf:/# show version
+bash: show: command not found
+root@8b9bba0048cf:/# exit
+exit

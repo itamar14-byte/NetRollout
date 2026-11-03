@@ -1,0 +1,3 @@
+sh: 0: can't access tty; job control turned off
+# sh: 1: show: not found
+# 

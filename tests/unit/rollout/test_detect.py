@@ -61,6 +61,10 @@ ANSWERS = {
 	"juniper_junos (Evolved)": ("show version", "Hostname: ptx1\nModel: ptx10008\nJunos: 22.4R1.11-EVO"),
 	"paloalto_panos (M-100)": ("show system info", "hostname: M-100\nmodel: M-100\nfamily: m"),
 	"hp_comware (CMW5)": ("display version", "H3C Comware Platform Software\nComware Software, Version 5.20"),
+	"hp_comware (3Com CMW5)": ("display version",
+	                           "3Com Corporation\n4800G PWR 24-Port Software Version 5.20 Release 2202P15"),
+	"linux (zsh)": ("show version", "zsh: command not found: show"),
+	"linux (Ubuntu's handler)": ("show version", "Command 'show' not found, did you mean:"),
 	"hp_procurve (wrapped stamp)": ("show version",
 	                                "Image stamp:\n  /ws/swbuildm/rel_tacoma_qaoff/code/build/btm\n  WB.15.15.0006"),
 	"cisco_aci": ("show version", "Cisco Nexus Operating System (NX-OS) Software\n"
@@ -213,6 +217,7 @@ def test_no_prompt_is_unknown():
 	("[Expert@CP1:0]#", 'clish -c "show version all"'),
 	("root@srx:~ #", 'cli -c "show version"'),
 	("root@srx%", 'cli -c "show version"'),
+	("%", 'cli -c "show version"'),
 	("R1#", "show version"),
 ])
 def test_the_prompt_decides_what_is_asked_first(prompt, first):
