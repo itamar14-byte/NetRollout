@@ -2,8 +2,12 @@
 unroutable Redis host, corrupt ciphertext, missing CSRF token), and the
 Redis-backed rollout logger against real pub/sub."""
 import time
+from types import SimpleNamespace
 
 import pytest
+import redis as redis_lib
+from redis.backoff import NoBackoff
+from redis.retry import Retry
 
 from src.db.connections import PostgresConfig, PostgresConnection
 from src.encryption import decrypt
@@ -43,6 +47,62 @@ def test_static_files_load_for_a_signed_in_user_while_postgres_is_down(
 	page = client.get("/dashboard")
 	assert page.status_code == 503
 	assert "running" in page.get_data(as_text=True)   # the error page's service list
+
+
+@pytest.fixture
+def stop_sessions(app, monkeypatch):
+	"""stop_sessions(): from now on the session store's Redis refuses
+	connections (as when its container stops); the rest of the app keeps
+	its own clients."""
+	def stop():
+		dead = redis_lib.Redis(host="127.0.0.1", port=1, socket_connect_timeout=1,
+		                       retry=Retry(NoBackoff(), 0))
+		monkeypatch.setattr(app.session_interface, "_backend",
+		                    SimpleNamespace(redis=SimpleNamespace(client=dead)))
+	return stop
+
+
+@pytest.mark.parametrize("method, path, headers", [
+	("GET", "/dashboard", {}),                                  # a page, signed in
+	("POST", "/login", {}),                                     # signing in again
+	("GET", "/account/session", {"X-NR-Background": "1"}),      # the pages' background session check
+])
+def test_redis_down_answers_the_service_unavailable_page(client_for, make_user, stop_sessions,
+                                                         method, path, headers):
+	"""A signed-in browser, the session store gone: the designed 503 page -
+	never a bare 500 (the empty session's missing id made saving it a
+	TypeError). The background check gets it too, as for any service down
+	(only a JSON body or the live log get JSON): the idle script can't read
+	it and keeps its own clock, never signing the user out."""
+	client = client_for(make_user())
+	stop_sessions()
+	resp = client.open(path, method=method, headers=headers,
+	                   data=None if method == "GET" else {"username": "x", "password": "y"})
+	assert resp.status_code == 503
+	assert "A backend service is unavailable" in resp.get_data(as_text=True)
+
+
+@pytest.mark.parametrize("method, path", [("GET", "/"), ("POST", "/login")])
+def test_redis_down_a_new_visitor_gets_the_page_too(client_for, stop_sessions, method, path):
+	"""No session cookie yet (a first visit, signing in): Redis isn't read for
+	it, so the store is checked - the designed 503 page, not a sign-in that
+	would be lost on save."""
+	client = client_for()
+	stop_sessions()
+	resp = client.open(path, method=method, data=None if method == "GET" else {"username": "x", "password": "y"})
+	assert resp.status_code == 503
+	assert "A backend service is unavailable" in resp.get_data(as_text=True)
+
+
+def test_redis_down_still_serves_static_files_and_health(client_for, stop_sessions):
+	"""Static files and the health check use no session: still answered."""
+	client = client_for()
+	stop_sessions()
+	static = client.get("/static/js/csrf.js")
+	assert static.status_code == 200
+	static.close()
+	assert client.get("/_netrollout/health").status_code in (200, 503)
+	assert client.get("/_netrollout/health").is_json
 
 
 @pytest.mark.parametrize("trigger", ["pg_down", "redis_timeout"])

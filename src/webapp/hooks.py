@@ -45,6 +45,18 @@ def session_seconds_left(now: float | None = None) -> tuple[float, float]:
 	return seconds_left(session, now or time.time(), current_app.sessions.idle_seconds())
 
 
+def mark_sessions_unavailable() -> None:
+	"""Redis couldn't be read for this request's session (the session
+	interface, build.py): the request is answered with the service-unavailable
+	page (register_auth) instead of running signed out."""
+	g.sessions_unavailable = True
+
+
+def sessions_unavailable() -> bool:
+	""":returns: whether this request's session couldn't be read"""
+	return bool(g.get("sessions_unavailable"))
+
+
 def mark_signed_in() -> None:
 	"""A sign-in just completed: both clocks start now."""
 	now = time.time()
@@ -138,8 +150,19 @@ def register_security_headers(app: Flask, header: str = CSP_HEADER) -> None:
 
 
 def register_auth(app: NetRolloutApp) -> None:
-	"""Who is signed in, and the checks before every request: the session's
-	lifetime, then a pending password change."""
+	"""Who is signed in, and the checks before every request: the sessions'
+	store answering, the session's lifetime, then a pending password change."""
+	@app.before_request
+	def require_sessions() -> None:
+		"""Redis down: no request runs without its session - a sign-in would
+		be lost, a page would think its user signed out. The service-
+		unavailable page (or 503 JSON) answers instead, Redis named on it.
+		Static files and the paths that use no session are still served.
+
+		:raises RedisConnectionError: the sessions' store is unavailable"""
+		if sessions_unavailable() and not request.path.startswith(NO_SESSION_PATHS):
+			raise RedisConnectionError("the session store (Redis) is unavailable")
+
 	@login_mng.user_loader
 	def load_user(user_id: str) -> User | None:
 		""":returns: the session's user, detached; None: unknown (signed out)"""

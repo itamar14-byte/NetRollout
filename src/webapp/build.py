@@ -40,8 +40,8 @@ from src.webapp.blueprints.rollout import bp as rollout_bp
 from src.webapp.blueprints.security import bp as security_bp
 from src.webapp.blueprints.system import bp as system_bp
 from src.webapp.db_move import DatabaseMove
-from src.webapp.hooks import (register_extensions, register_handlers, register_auth,
-                               register_security_headers)
+from src.webapp.hooks import (mark_sessions_unavailable, register_extensions, register_handlers,
+                               register_auth, register_security_headers)
 from src.webapp.http import WebServices
 from src.webapp.lifecycle import Maintenance, Shutdown, register_maintenance
 from src.webapp.startup import new_instance_token
@@ -90,11 +90,19 @@ class _SafeRedisSessionInterface(RedisSessionInterface):
 		pass   # set by the parent's __init__; the backend's is always used
 
 	def open_session(self, app: Flask, request: Request) -> SessionMixin:
-		""":returns: the request's session; an empty one when Redis is down"""
+		""":returns: the request's session; when Redis is down, an empty one
+		 with an id of its own (saving it then fails as Redis, which is caught,
+		 never on a missing id) - and the request is marked, so it's answered
+		 with the service-unavailable page (hooks.require_sessions)"""
 		try:
+			if not request.cookies.get(app.config["SESSION_COOKIE_NAME"]):
+				# no session to read, so Redis isn't asked - but a sign-in
+				# would be lost on save: the store is checked anyway
+				self.client.ping()
 			return super().open_session(app, request)
 		except REDIS_UNAVAILABLE:
-			return self.session_class()
+			mark_sessions_unavailable()
+			return self.session_class(sid=self._generate_sid(self.sid_length), permanent=self.permanent)
 
 	def save_session(self, app: Flask, session: SessionMixin,
 	                 response: Response) -> None:
