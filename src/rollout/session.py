@@ -150,11 +150,23 @@ def _connect(device: Device, **extra: Any) -> Any:
 	waiting for a prompt: a message the device printed (syslog, a broadcast)
 	redraws the prompt in the middle of the setup's reads.
 
+	:param extra: more of ConnectHandler's arguments, or one replaced
 	:raises: Netmiko's exceptions when it can't connect"""
+	args = {**_connect_args(device), **extra}
 	try:
-		return netmiko.ConnectHandler(**_connect_args(device), **extra)
+		return netmiko.ConnectHandler(**args)
 	except netmiko.exceptions.ReadTimeout:
-		return netmiko.ConnectHandler(**_connect_args(device), **extra)
+		return netmiko.ConnectHandler(**args)
+
+
+def connect_unknown(device: Device) -> Any:
+	"""An SSH session to a device whose platform isn't known yet - platform
+	detection's (src/rollout/detect.py): Netmiko's generic terminal driver
+	(what its own SSHDetect uses: no session preparation, no paging change),
+	with a rollout's login and retry. The caller disconnects it.
+
+	:raises: Netmiko's exceptions when it can't connect"""
+	return _connect(device, device_type="terminal_server", global_cmd_verify=False)
 
 
 @contextmanager
