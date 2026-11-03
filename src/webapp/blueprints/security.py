@@ -2,6 +2,8 @@
 encrypted: SecurityProfiles in src/inventory.py) - create, edit, delete, and
 test one against a device."""
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Any
 
 from flask import Blueprint, render_template, request, flash, redirect, url_for
@@ -10,11 +12,12 @@ from flask_login import login_required
 from netmiko import NetmikoAuthenticationException, NetmikoTimeoutException
 
 from src.audit import AuditAction
-from src.db.tables import DeviceCredential, Inventory
+from src.db.tables import DeviceCredential, Inventory, SecurityProfile
 from src.encryption import decrypt
 from src.inventory import InventoryView, SecurityProfiles
 from src.rollout import inputs
 from src.rollout.address import is_ip, is_loopback, qualify, resolve
+from src.rollout.detect import NEIGHBOUR_NAMES, detect
 from src.rollout.engine import Device
 from src.rollout.session import NetmikoSession
 from src.webapp.app import current_app
@@ -158,30 +161,91 @@ def security_test(profile_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturn
 
 	:returns: ok, or why not - 400 the window's fields, 401 refused, 503 the
 	 port unreachable, 504 timed out"""
+	try:
+		device_obj = _test_target(profile_id, data)
+		with _signing_in(device_obj), NetmikoSession.connect(device_obj):
+			pass
+	except SignInError as e:
+		return err(str(e), e.code)
+	return ok(f"Connected successfully to {device_obj.ip}")
+
+
+@bp.route("/<uuid:profile_id>/detect", methods=["POST"])
+@login_required
+@with_json()
+def security_detect(profile_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
+	"""Sign in with the profile to the address the device window holds (JSON
+	{ip, port}) and tell its platform (src/rollout/detect.py) - the window's
+	Detect button. Checked and refused as Test sign-in is.
+
+	:returns: ok {platform, detected, detected_name, hostname, evidence,
+	 problem} (platform null: unsupported or unknown), or why not - 400 the
+	 window's fields, 404 the profile, 401 refused, 503 unreachable, 504
+	 timed out"""
+	try:
+		ip, port = _window_address(data, platform_required=False)
+		with current_app.backend.postgres.get_session() as db_session:
+			profile = SecurityProfiles(db_session, viewer()).owned(profile_id)
+			if not profile:
+				raise SignInError("Profile not found", 404)
+			login = _login(profile)
+		device_obj = _reachable(ip, port, "", ip, login)
+		with _signing_in(device_obj):
+			found = detect(device_obj)
+	except SignInError as e:
+		return err(str(e), e.code)
+	return ok(platform=found.platform, detected=found.detected,
+	          detected_name=NEIGHBOUR_NAMES.get(found.detected or ""), hostname=found.hostname,
+	          evidence=found.evidence, problem=found.problem)
+
+
+class SignInError(Exception):
+	"""Why a sign-in to a device wasn't tried, or failed - in words, with
+	its HTTP status (Test sign-in and Detect answer it)."""
+
+	def __init__(self, message: str, code: int = 400) -> None:
+		super().__init__(message)
+		self.code = code
+
+
+def _window_address(data: dict[str, Any], platform_required: bool) -> tuple[str, str]:
+	"""The address and port the device window holds, checked (and its
+	platform, for Test sign-in).
+
+	:returns: (the address, normalised; the port)
+	:raises SignInError: a field missing or invalid, or a loopback address"""
+	ip = str(data.get("ip") or "").strip()
+	port = str(data.get("port") or "").strip()
+	if not ip:
+		raise SignInError("Enter the device's IP address or hostname first")
+	if not inputs.validate_address(ip):
+		raise SignInError("Not a valid IP address or hostname")
+	if not inputs.validate_port(port):
+		raise SignInError("Port must be between 1 and 65535")
+	if platform_required and not inputs.validate_platform(str(data.get("device_type") or "").strip()):
+		raise SignInError("Choose the device's platform first")
+	ip = inputs.normalize_address(ip)
+	if is_loopback(ip):
+		raise SignInError(own_server(ip))
+	return ip, port
+
+
+def _test_target(profile_id: uuid.UUID, data: dict[str, Any]) -> Device:
+	"""Test sign-in's device: one the user sees (JSON {device_id}), or the
+	device window's fields - with the user's own profile's login.
+
+	:raises SignInError: why not"""
 	device_id = None
 	if "ip" in data:
-		ip = str(data.get("ip") or "").strip()
-		port = str(data.get("port") or "").strip()
-		device_type = str(data.get("device_type") or "").strip()
-		if not ip:
-			return err("Enter the device's IP address or hostname first")
-		if not inputs.validate_address(ip):
-			return err("Not a valid IP address or hostname")
-		if not inputs.validate_port(port):
-			return err("Port must be between 1 and 65535")
-		if not inputs.validate_platform(device_type):
-			return err("Choose the device's platform first")
-		ip = inputs.normalize_address(ip)
-		if is_loopback(ip):
-			return err(own_server(ip))
-		label = ip
+		ip, port = _window_address(data, platform_required=True)
+		device_type, label = str(data.get("device_type") or "").strip(), ip
 	elif not data.get("device_id"):
-		return err("No device selected", 404)
+		raise SignInError("No device selected", 404)
 	else:
 		try:
 			device_id = uuid.UUID(str(data["device_id"]))
 		except ValueError:
-			return err("Invalid device ID", 422)
+			raise SignInError("Invalid device ID", 422) from None
 
 	with current_app.backend.postgres.get_session() as db_session:
 		profile = SecurityProfiles(db_session, viewer()).owned(profile_id)
@@ -189,29 +253,47 @@ def security_test(profile_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturn
 			# any device the user sees: it's their own credentials being tried
 			device = InventoryView(db_session, viewer()).get_visible(device_id)
 			if not profile or not device:
-				return err("Profile or device not found", 404)
+				raise SignInError("Profile or device not found", 404)
 			ip, port, device_type, label = device.ip, str(device.port), device.device_type, device.label
 		elif not profile:
-			return err("Profile not found", 404)
-		username = profile.username
-		password = decrypt(profile.password_secret)
-		secret = decrypt(profile.enable_secret) if profile.enable_secret else ""
+			raise SignInError("Profile not found", 404)
+		login = _login(profile)
+	return _reachable(ip, port, device_type, label, login)
 
+
+def _login(profile: SecurityProfile) -> tuple[str, str, str]:
+	""":returns: the profile's (username, password, enable secret or ""), decrypted"""
+	secret = decrypt(profile.enable_secret) if profile.enable_secret else ""
+	return profile.username, decrypt(profile.password_secret), secret
+
+
+def _reachable(ip: str, port: str, device_type: str, label: str, login: tuple[str, str, str]) -> Device:
+	"""The device to sign in to, once its name resolves (System Settings'
+	DNS suffix added to a bare name) and its port answers.
+
+	:raises SignInError: 503 - the name doesn't resolve, the port is closed"""
 	suffix = current_app.web.dns_suffix()
 	host = qualify(ip, suffix)
 	if not is_ip(host) and resolve(host) is None:
-		return err(f"Can't resolve {host} from this server", 503)
+		raise SignInError(f"Can't resolve {host} from this server", 503)
 	if not inputs.tcp_reachable(host, int(port)):
-		return err(f"TCP port {port} unreachable on {host}", 503)
-	device_obj = Device(ip=ip, port=int(port), device_type=device_type, label=label,
-	                    username=username, password=password, secret=secret, dns_suffix=suffix)
+		raise SignInError(f"TCP port {port} unreachable on {host}", 503)
+	username, password, secret = login
+	return Device(ip=ip, port=int(port), device_type=device_type, label=label,
+	              username=username, password=password, secret=secret, dns_suffix=suffix)
+
+
+@contextmanager
+def _signing_in(device: Device) -> Iterator[None]:
+	"""A sign-in's failure, in words: 401 refused, 504 timed out, else 500
+	with the error's text.
+
+	:raises SignInError: the sign-in failed"""
 	try:
-		with NetmikoSession.connect(device_obj):
-			pass
-		return ok(f"Connected successfully to {ip}")
+		yield
 	except NetmikoAuthenticationException:
-		return err("Authentication failed - check username and password", 401)
+		raise SignInError("Authentication failed - check username and password", 401) from None
 	except NetmikoTimeoutException:
-		return err(f"Connection timed out on {device_obj.endpoint}", 504)
+		raise SignInError(f"Connection timed out on {device.endpoint}", 504) from None
 	except Exception as e:
-		return err(str(e), 500)
+		raise SignInError(str(e), 500) from e

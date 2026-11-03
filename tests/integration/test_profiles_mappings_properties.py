@@ -9,6 +9,7 @@ import pytest
 
 from src.db.tables import AuditLog, PropertyDefinition, SecurityProfile, VariableMapping, Inventory
 from src.encryption import decrypt, encrypt
+from src.rollout.detect import Detection
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -761,3 +762,89 @@ def test_connection_test_of_the_windows_fields_wrong_credentials(client_for, mak
 			"ip": "10.0.0.9", "port": "22", "device_type": "cisco_ios"})
 	assert resp.status_code == 401
 	assert resp.json["message"] == "Authentication failed - check username and password"
+
+
+# ── Detect (the device window's platform detection) ─────────────────────────
+
+def test_detect_answers_what_the_device_is(client_for, make_user, make_profile):
+	"""Detect signs in with the profile at the window's address and port
+	(enable secret too) and answers what detect() found - the platform, its
+	hostname and the line it was recognised by."""
+	user = make_user()
+	pid = make_profile(user, username="netops", password="pw")
+	found = Detection(platform="cisco_xe", detected="cisco_xe", hostname="CORE-SW1",
+	                  evidence="Cisco IOS XE Software, Version 17.03.04")
+	with patch("src.rollout.inputs.tcp_reachable", return_value=True) as reachable, \
+			patch("src.webapp.blueprints.security.detect", return_value=found) as detect:
+		resp = client_for(user).post(f"/security/{pid}/detect", json={"ip": " 10.0.0.9 ", "port": "2222"})
+	assert resp.status_code == 200
+	assert resp.json == {"status": "ok", "platform": "cisco_xe", "detected": "cisco_xe", "detected_name": None,
+	                     "hostname": "CORE-SW1", "evidence": "Cisco IOS XE Software, Version 17.03.04",
+	                     "problem": None}
+	reachable.assert_called_once_with("10.0.0.9", 2222)
+	device = detect.call_args.args[0]
+	assert (device.ip, device.port, device.username, device.password) == ("10.0.0.9", 2222, "netops", "pw")
+
+
+def test_detect_names_a_platform_netrollout_doesnt_support(client_for, make_user, make_profile):
+	"""A neighbour (an ASA): no platform, what it is and its name in words."""
+	user = make_user()
+	with patch("src.rollout.inputs.tcp_reachable", return_value=True), \
+			patch("src.webapp.blueprints.security.detect",
+			      return_value=Detection(detected="cisco_asa", evidence="Cisco Adaptive Security Appliance")):
+		resp = client_for(user).post(f"/security/{make_profile(user)}/detect", json={"ip": "10.0.0.9", "port": "22"})
+	assert (resp.json["platform"], resp.json["detected"], resp.json["detected_name"]) == (
+		None, "cisco_asa", "Cisco ASA")
+
+
+@pytest.mark.parametrize("fields, message", [
+	({"ip": "", "port": "22"}, "Enter the device's IP address or hostname first"),
+	({"ip": "10.0.0.300", "port": "22"}, "Not a valid IP address or hostname"),
+	({"ip": "10.0.0.9", "port": "70000"}, "Port must be between 1 and 65535"),
+])
+def test_detect_refuses_the_windows_fields_before_signing_in(client_for, make_user, make_profile,
+                                                             fields, message):
+	"""Fields that can't be used: 400 with what to fix, nothing tried - no
+	platform needed (that's what Detect finds)."""
+	user = make_user()
+	with patch("src.rollout.inputs.tcp_reachable") as reachable, \
+			patch("src.webapp.blueprints.security.detect") as detect:
+		resp = client_for(user).post(f"/security/{make_profile(user)}/detect", json=fields)
+	assert resp.status_code == 400
+	assert resp.json == {"status": "error", "message": message}
+	reachable.assert_not_called()
+	detect.assert_not_called()
+
+
+def test_detect_refuses_a_loopback_and_someone_elses_profile(client_for, make_user, make_profile):
+	"""127.0.0.1 is NetRollout's own server (400); another user's profile or
+	none is "Profile not found" (404) - nothing tried either way."""
+	user, other = make_user(), make_user()
+	client = client_for(user)
+	with patch("src.rollout.inputs.tcp_reachable", return_value=True), \
+			patch("src.webapp.blueprints.security.detect") as detect:
+		loop = client.post(f"/security/{make_profile(user)}/detect", json={"ip": "127.0.0.1", "port": "22"})
+		answers = [client.post(f"/security/{pid}/detect", json={"ip": "10.0.0.9", "port": "22"})
+		           for pid in (make_profile(other), uuid.uuid4())]
+	assert loop.status_code == 400 and loop.json["message"].startswith("127.0.0.1 is NetRollout's own server")
+	assert [(a.status_code, a.json["message"]) for a in answers] == [(404, "Profile not found")] * 2
+	detect.assert_not_called()
+
+
+@pytest.mark.parametrize("reachable, error, code, message", [
+	(False, None, 503, "TCP port 22 unreachable on 10.0.0.9"),
+	(True, netmiko.NetMikoAuthenticationException("no"), 401,
+	 "Authentication failed - check username and password"),
+	(True, netmiko.NetmikoTimeoutException("slow"), 504, "Connection timed out on 10.0.0.9:22"),
+	(True, ValueError("socket closed"), 500, "socket closed"),
+])
+def test_detect_says_why_it_couldnt_sign_in(client_for, make_user, make_profile,
+                                            reachable, error, code, message):
+	"""The port closed, the profile refused, a timeout, another error: Test
+	sign-in's answers."""
+	user = make_user()
+	with patch("src.rollout.inputs.tcp_reachable", return_value=reachable), \
+			patch("src.webapp.blueprints.security.detect", side_effect=error) as detect:
+		resp = client_for(user).post(f"/security/{make_profile(user)}/detect", json={"ip": "10.0.0.9", "port": "22"})
+	assert (resp.status_code, resp.json["message"]) == (code, message)
+	assert detect.called == reachable
