@@ -19,3 +19,5 @@ deploy/** text eol=lf
 
 # Third-party files served as published (their checksums: src/static/vendor/SHA256SUMS)
 src/static/vendor/** -text
+# recorded device outputs (platform detection's test data): kept byte for byte
+tests/unit/rollout/detect/** -text
