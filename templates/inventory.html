@@ -304,7 +304,14 @@
                     </div>
 
                     <div class="mb-3">
-                        <label class="nr-label">DEVICE TYPE</label>
+                        <div class="platform-head">
+                            <label class="nr-label">DEVICE TYPE</label>
+                            <button type="button" class="btn btn-secondary btn-sm detect-btn" id="addDetectBtn"
+                                    data-nr-click="detectPlatform" data-which="add" aria-disabled="true"
+                                    title="Enter the device's address first">
+                                <i class="bi bi-search me-1" aria-hidden="true"></i>Detect
+                            </button>
+                        </div>
                         <div class="nr-select" id="addPlatformSelect">
                             <div class="nr-select-trigger">
                                 <div class="nr-select-display">
@@ -331,6 +338,7 @@
                             <input type="hidden" id="addDevTypeHidden" name="device_type" value="">
                         </div>
                         <div class="field-error" id="addPlatformError">Please select a platform.</div>
+                        <div id="addDetectStatus" class="conn-status detect-status" role="status" style="display:none;"></div>
                     </div>
 
                     <div class="mb-1">
@@ -454,7 +462,14 @@
                     </div>
 
                     <div class="mb-3">
-                        <label class="nr-label">DEVICE TYPE</label>
+                        <div class="platform-head">
+                            <label class="nr-label">DEVICE TYPE</label>
+                            <button type="button" class="btn btn-secondary btn-sm detect-btn edit-only" id="editDetectBtn"
+                                    data-nr-click="detectPlatform" data-which="edit" aria-disabled="true"
+                                    title="Enter the device's address first">
+                                <i class="bi bi-search me-1" aria-hidden="true"></i>Detect
+                            </button>
+                        </div>
                         <div class="nr-select" id="editPlatformSelect">
                             <div class="nr-select-trigger">
                                 <div class="nr-select-display">
@@ -481,6 +496,7 @@
                             <input type="hidden" id="editDevTypeHidden" name="device_type" value="">
                         </div>
                         <div class="field-error" id="editPlatformError">Please select a platform.</div>
+                        <div id="editDetectStatus" class="conn-status detect-status edit-only" role="status" style="display:none;"></div>
                     </div>
 
                     <div class="mb-1">

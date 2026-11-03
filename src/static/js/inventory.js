@@ -78,8 +78,8 @@ function initNrSelect(containerId, onChange) {
 }
 
 // Init security profile selects
-const addSecSelect  = initNrSelect('addSecSelect',  () => resetSignIn('add'));
-let   editSecSelect = initNrSelect('editSecSelect', () => resetSignIn('edit'));
+const addSecSelect  = initNrSelect('addSecSelect',  () => { resetSignIn('add'); resetDetect('add'); });
+let   editSecSelect = initNrSelect('editSecSelect', () => { resetSignIn('edit'); resetDetect('edit'); });
 
 // ════════════════════════════════════════
 //  Test sign-in - the selected profile on what the window holds now
@@ -139,8 +139,80 @@ async function testSignIn(which) {
 }
 ['add', 'edit'].forEach(which => {
     ['DevIp', 'DevPort'].forEach(field => document.getElementById(which + field)
-        .addEventListener('input', () => resetSignIn(which)));
+        .addEventListener('input', () => { resetSignIn(which); resetDetect(which); }));
 });
+
+// ════════════════════════════════════════
+//  Detect - the platform, asked of the device itself
+// ════════════════════════════════════════
+// Beside the platform field: signs in with the selected profile at the
+// window's address and port (/security/<id>/detect) and fills the platform
+// in - and an empty label with the device's hostname. Greyed (aria-disabled,
+// the reason in its tooltip) until the address, the port and a profile are
+// there; nothing is sent then. Not in the read-only window (.edit-only).
+const DETECT_IDLE = '<i class="bi bi-search me-1" aria-hidden="true"></i>Detect';
+
+function detectMissing(which) {
+    const parts = signInParts(which);
+    const port = Number(parts.port);
+    if (!parts.ip) return "Enter the device's address first";
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return 'Enter the SSH port first';
+    if (!parts.profile) return 'Choose your security profile first - Detect signs in with it';
+    return '';
+}
+
+function updateDetect(which) {
+    const btn = document.getElementById(which + 'DetectBtn');
+    if (!btn || btn.dataset.busy) return;
+    const missing = detectMissing(which);
+    btn.setAttribute('aria-disabled', missing ? 'true' : 'false');
+    btn.title = missing || 'Sign in with your security profile and detect the platform';
+}
+
+function resetDetect(which) {
+    const status = document.getElementById(which + 'DetectStatus');
+    if (status) { status.style.display = 'none'; status.textContent = ''; }
+    updateDetect(which);
+}
+
+async function detectPlatform(which) {
+    const btn = document.getElementById(which + 'DetectBtn');
+    if (btn.getAttribute('aria-disabled') === 'true' || btn.dataset.busy) return;
+    const parts  = signInParts(which);
+    const status = document.getElementById(which + 'DetectStatus');
+    btn.dataset.busy = '1';
+    btn.setAttribute('aria-disabled', 'true');
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>Detecting…';
+    status.style.display = 'none';
+    try {
+        const resp = await fetch('/security/' + encodeURIComponent(parts.profile) + '/detect', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': CSRF_TOKEN },
+            body:    JSON.stringify({ ip: parts.ip, port: parts.port })
+        });
+        const data = await resp.json();
+        if (data.status !== 'ok') {
+            showSignIn(status, false, data.message || 'Detection failed');
+        } else if (data.platform) {
+            (which === 'add' ? addPlatformSel : editPlatformSel).setValue(data.platform);
+            const label = document.getElementById(which + 'DevLabel');
+            if (data.hostname && !label.value.trim()) label.value = data.hostname;
+            showSignIn(status, true, 'Detected: ' + (PLATFORM_LABELS[data.platform] || data.platform)
+                + (data.evidence ? ' - ' + data.evidence : ''));
+        } else if (data.detected) {
+            showSignIn(status, false, 'Detected ' + (data.detected_name || data.detected)
+                + ", which NetRollout doesn't support - choose the platform.");
+        } else {
+            showSignIn(status, false, data.problem ? data.problem + ' - choose the platform.'
+                : "Couldn't detect the platform - choose it.");
+        }
+    } catch (_) {
+        showSignIn(status, false, 'Network error');
+    }
+    delete btn.dataset.busy;
+    btn.innerHTML = DETECT_IDLE;
+    updateDetect(which);
+}
 
 // ════════════════════════════════════════
 //  Platform NrSelect
@@ -666,6 +738,7 @@ function openEdit(device) {
         cb.checked = assignedIds.has(cb.value);
     });
 
+    resetDetect('edit');
     new bootstrap.Modal(document.getElementById('editDeviceModal')).show();
 }
 
@@ -709,6 +782,7 @@ document.getElementById('editDeviceModal').addEventListener('hidden.bs.modal', (
     form.querySelectorAll('.nr-submitted').forEach(el => el.classList.remove('nr-submitted'));
     form.querySelectorAll('.field-error').forEach(el => el.style.display = '');
     resetEditTestBtn();
+    resetDetect('edit');
 });
 
 // ════════════════════════════════════════
@@ -840,6 +914,7 @@ document.getElementById('addDeviceModal').addEventListener('hidden.bs.modal', ()
     form.querySelectorAll('.nr-submitted').forEach(el => el.classList.remove('nr-submitted'));
     form.querySelectorAll('.field-error').forEach(el => el.style.display = '');
     resetAddTestBtn();
+    resetDetect('add');
 });
 
 //  Escape handling - close topmost modal tier, child before parent
@@ -948,6 +1023,7 @@ async function submitQuickCreateProperty() {
 nrHandlers({
     openQuickCreateProfile: (el, e) => { e.stopPropagation(); openQuickCreateProfile(el.dataset.which); },
     testSignIn: el => { testSignIn(el.dataset.which); },
+    detectPlatform: el => { detectPlatform(el.dataset.which); },
     testEditConnection: () => { testEditConnection(); },
     openQuickCreateMapping: () => { openQuickCreateMapping(); },
     openQuickCreateProperty: () => { openQuickCreateProperty(); },

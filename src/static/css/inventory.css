@@ -406,3 +406,11 @@
 }
 .mapping-create-btn:hover { background: rgba(0,188,212,0.06); }
 
+
+/* ── Detect: beside the platform's label; greyed until the address, port and
+   a profile are there (aria-disabled: still focusable, its tooltip says why) ── */
+.platform-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.4rem; }
+.platform-head .nr-label { margin-bottom: 0; }
+.detect-btn { padding: 0.1rem 0.6rem; font-size: 0.75rem; }
+.detect-btn[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
+.detect-status { margin-top: 0.5rem; }
