@@ -190,7 +190,7 @@ Above the devices, three filters narrow the list as you type: **Name** and **Add
 **Detect** (beside DEVICE TYPE) asks the device itself which platform it runs. It's available once the address, the port and your security profile are filled in; until then it's greyed out, and its tooltip says what's missing. NetRollout signs in with your profile and sends one to five read-only commands (`show version`, `get system status`, `show system info`, `display version`, `show version all`), usually one. It recognises each platform by the product name the device prints, such as `Cisco IOS XE Software` or `Product version Check Point Gaia`, and never guesses:
 
 - **Found:** DEVICE TYPE is filled in, with the line it was recognised by under it, for example "Detected: Cisco IOS-XE - Cisco IOS XE Software, Version 17.03.04". An empty LABEL gets the device's hostname; a label you typed is never replaced.
-- **A platform NetRollout doesn't support** (a Cisco ASA or Firepower, ACI, MDS, Huawei, a Linux shell): it says what it found, and you choose.
+- **A platform NetRollout doesn't support** (a Cisco ASA or Firepower, an ACI fabric switch, Huawei, a Linux shell): it says what it found, and you choose.
 - **Nothing recognised**, or a login disclaimer the device asks you to accept: it says so, and you choose. NetRollout never accepts a disclaimer for you.
 - **Couldn't sign in:** the same messages as Test sign-in.
 

@@ -863,10 +863,12 @@ PLATFORMS: dict[str, Platform] = {
 		       "events": "2026 Oct 21 10:00:00 … %ETHPORT-5-IF_UP"},
 		sources={"read": "lab", "left_out": "lab", "saved": "doc", "layout": "lab", "navigation": "doc",
 		         "removal": "lab", "exec": "lab", "defaults": "lab", "events": "lab"},
-		# the whole header (the login banner says "Cisco NX-OS Software"); ACI
-		# leaves and MDS print it too - named, not NX-OS (detect.NEIGHBOURS)
+		# the whole header (the login banner says "Cisco NX-OS Software"); MDS
+		# prints it too and is of the family (NX-OS's CLI). ACI leaves print it
+		# as well but are configured through the APIC, not their CLI: named, not
+		# NX-OS (detect.NEIGHBOURS)
 		identity=Identity(_SHOW_VERSION, text("Cisco Nexus Operating System (NX-OS) Software"),
-		                  unless=text("aci-n9000", "cisco MDS")),
+		                  unless=text("aci-n9000")),
 		answer_name=re.compile(r"Device name: (?P<name>\S+)")),
 	# a failed commit reverts the running config; leaving config mode
 	# (Netmiko answers "no" to "commit them?") drops the pending changes.

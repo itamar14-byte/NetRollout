@@ -24,14 +24,13 @@ if TYPE_CHECKING:   # annotations only: engine.py imports the session
 
 
 # Platforms NetRollout doesn't support, named when found (their answers to
-# our probes). ACI leaves and MDS print NX-OS's header (cisco_nxos rules them
-# out); an FTD's answer can carry the ASA block. A bash shell answers "show
+# our probes). ACI leaves print NX-OS's header but are configured through the
+# APIC (cisco_nxos rules them out); an FTD's answer can carry the ASA block. A bash shell answers "show
 # version" with "command not found" (Junos's csh: "Command not found." - its
 # root shell is Junos's own Shell)
 _NXOS_HEADER = text("Cisco Nexus Operating System (NX-OS) Software")
 NEIGHBOURS: dict[str, Identity] = {
 	"cisco_aci": Identity("show version", _NXOS_HEADER, also=text("aci-n9000")),
-	"cisco_mds": Identity("show version", _NXOS_HEADER, also=text("cisco MDS")),
 	"cisco_ftd": Identity("show version", text("Cisco Firepower"), also=text("Threat Defense")),
 	"cisco_asa": Identity("show version", text("Cisco Adaptive Security Appliance Software"),
 	                      unless=text("Threat Defense")),
@@ -39,7 +38,7 @@ NEIGHBOURS: dict[str, Identity] = {
 	"linux": Identity("show version", text("command not found")),
 }
 # …and what to call them ("Detected Cisco ASA, which NetRollout doesn't support")
-NEIGHBOUR_NAMES = {"cisco_aci": "Cisco ACI", "cisco_mds": "Cisco MDS", "cisco_asa": "Cisco ASA",
+NEIGHBOUR_NAMES = {"cisco_aci": "Cisco ACI", "cisco_asa": "Cisco ASA",
                    "cisco_ftd": "Cisco Firepower Threat Defense", "huawei": "Huawei VRP",
                    "linux": "a Linux shell"}
 

@@ -65,7 +65,7 @@ ANSWERS = {
 	                                "Image stamp:\n  /ws/swbuildm/rel_tacoma_qaoff/code/build/btm\n  WB.15.15.0006"),
 	"cisco_aci": ("show version", "Cisco Nexus Operating System (NX-OS) Software\n"
 	                              "  kickstart image file is: /bootflash/aci-n9000-dk9.14.0.1h.bin"),
-	"cisco_mds": ("show version", "Cisco Nexus Operating System (NX-OS) Software\nHardware\n"
+	"cisco_nxos (MDS, of the family)": ("show version", "Cisco Nexus Operating System (NX-OS) Software\nHardware\n"
 	                              "  cisco MDS 9148S 16G 48 FC (1 Slot) Chassis"),
 }
 
