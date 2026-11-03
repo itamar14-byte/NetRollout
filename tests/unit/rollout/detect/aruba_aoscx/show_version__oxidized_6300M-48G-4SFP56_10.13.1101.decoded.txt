@@ -1,0 +1,15 @@
+show version
+-----------------------------------------------------------------------------
+ArubaOS-CX
+(c) Copyright 2017-2025 Hewlett Packard Enterprise Development LP
+-----------------------------------------------------------------------------
+Version      : FL.10.13.1101                                                 
+Build Date   : 2025-05-09 22:44:18 UTC                                       
+Build ID     : ArubaOS-CX:FL.10.13.1101:594be74c336e:202505092217            
+Build SHA    : 594be74c336e02b26077185fb14e90aa09f9f95e                      
+Hot Patches  :                                                               
+Active Image : primary                       
+
+Service OS Version : FL.01.14.0002                 
+BIOS Version       : FL.01.0007                    
+loc0-ms-sw1# 

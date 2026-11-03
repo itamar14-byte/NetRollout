@@ -1,0 +1,21 @@
+  - cmd: "display version"
+    output: |
+      H3C Comware Software, Version 7.1.064, ESS 1171P23
+      Copyright (c) 2004-2021 New H3C Technologies Co., Ltd. All rights reserved.
+      H3C SecPath vFW1000 uptime is 1 week, 2 days, 21 hours, 0 minutes
+      Last reboot reason : Power on
+      Boot image: flash:/vFW1000-CMW710-BOOT-E1171P23-X64.bin
+      Boot image version: 7.1.064, ESS 1171P23
+        Compiled Jan 06 2021 14:00:00
+      System image: flash:/vFW1000-CMW710-SYSTEM-E1171P23-X64.bin
+      System image version: 7.1.064, ESS 1171P23
+        Compiled Jan 06 2021 14:00:00
+
+      CPU ID: 0x01000101, vCPUs: Total 2, Available 2
+      2.00G bytes RAM Memory
+      Basic    BootWare Version:  1.11
+      Extended BootWare Version:  1.11
+      [SLOT  1]VNIC-E1000             (Driver)1.0
+      [SLOT  2]VNIC-E1000             (Driver)1.0
+      [SLOT  3]VNIC-E1000             (Driver)1.0
+      [SLOT  4]VNIC-E1000             (Driver)1.0

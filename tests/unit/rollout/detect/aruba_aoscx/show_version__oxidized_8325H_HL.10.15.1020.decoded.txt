@@ -1,0 +1,15 @@
+show version
+-----------------------------------------------------------------------------
+AOS-CX
+(c) Copyright 2017-2025 Hewlett Packard Enterprise Development LP
+-----------------------------------------------------------------------------
+Version      : HL.10.15.1020                                                 
+Build Date   : 2025-05-10 00:59:04 UTC                                       
+Build ID     : AOS-CX:HL.10.15.1020:b30077084728:202505100039                
+Build SHA    : b3007708472845684815cecc555ec5813090390c                      
+Hot Patches  :                                                               
+Active Image : secondary                     
+
+Service OS Version : HL.01.16.0004                 
+BIOS Version       : HL-01-0007                    
+xx-xxxx-sw01# 

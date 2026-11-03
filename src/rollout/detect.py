@@ -24,30 +24,41 @@ if TYPE_CHECKING:   # annotations only: engine.py imports the session
 
 
 # Platforms NetRollout doesn't support, named when found (their answers to
-# our probes); a bash shell answers "show version" with "command not found"
-# (Junos's csh: "Command not found." - its root shell is Junos's own Shell)
+# our probes). ACI leaves and MDS print NX-OS's header (cisco_nxos rules them
+# out); an FTD's answer can carry the ASA block. A bash shell answers "show
+# version" with "command not found" (Junos's csh: "Command not found." - its
+# root shell is Junos's own Shell)
+_NXOS_HEADER = text("Cisco Nexus Operating System (NX-OS) Software")
 NEIGHBOURS: dict[str, Identity] = {
+	"cisco_aci": Identity("show version", _NXOS_HEADER, also=text("aci-n9000")),
+	"cisco_mds": Identity("show version", _NXOS_HEADER, also=text("cisco MDS")),
+	"cisco_ftd": Identity("show version", text("Cisco Firepower"), also=text("Threat Defense")),
 	"cisco_asa": Identity("show version", text("Cisco Adaptive Security Appliance Software"),
-	                      unless=text("Firepower Threat Defense")),
-	"cisco_ftd": Identity("show version", text("Cisco Firepower Threat Defense")),
+	                      unless=text("Threat Defense")),
 	"huawei": Identity("display version", text("Huawei Versatile Routing Platform")),
 	"linux": Identity("show version", text("command not found")),
 }
 # …and what to call them ("Detected Cisco ASA, which NetRollout doesn't support")
-NEIGHBOUR_NAMES = {"cisco_asa": "Cisco ASA", "cisco_ftd": "Cisco Firepower Threat Defense",
-                   "huawei": "Huawei VRP", "linux": "a Linux shell"}
+NEIGHBOUR_NAMES = {"cisco_aci": "Cisco ACI", "cisco_mds": "Cisco MDS", "cisco_asa": "Cisco ASA",
+                   "cisco_ftd": "Cisco Firepower Threat Defense", "huawei": "Huawei VRP",
+                   "linux": "a Linux shell"}
 
 # A pager waiting at the end of an answer, and the key that leaves it -
-# ProCurve says its own ("quit: Control-C")
+# ProCurve and AOS-CX name theirs ("quit: Control-C", "quit: q"). The
+# identifying line is always on the first screen: the rest isn't needed
 PAGERS: tuple[tuple[re.Pattern[str], str], ...] = (
-	(re.compile(r"-- MORE --, next page: Space.*$"), "\x03"),
-	(re.compile(r"(--\s*More\s*--|---\(more[^)]*\)---|-+ More -+|lines \d+-\d+)\s*$", re.IGNORECASE), "q"),
+	(re.compile(r"-- MORE --, next page: Space.*quit: Control-C\s*$"), "\x03"),
+	(re.compile(r"(--\s*More\s*--|---\(more[^)]*\)---|-+ More -+|-- MORE --.*|lines \d+-\d+)\s*$",
+	            re.IGNORECASE), "q"),
 )
+# ProCurve's splash after login (its Netmiko driver answers it too)
+ANY_KEY = re.compile(r"press any key to continue", re.IGNORECASE)
 # A login disclaimer to accept (FortiOS "(Press 'a' to accept):") - never
 # accepted on the person's behalf
 DISCLAIMER = re.compile(r"press\s+'?a'?\s+to\s+accept", re.IGNORECASE)
-# Terminal escape codes some devices draw with (ProCurve, AOS-CX)
-_ESCAPES = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+# Terminal escape codes some devices draw with (ProCurve, AOS-CX), carriage
+# returns (NX-OS ends a line with two) and backspaces (a pager's erase)
+_ESCAPES = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|[\r\x08]")
 
 PROBE_SECONDS = 15.0     # one probe's answer, at most
 DETECT_SECONDS = 45.0    # every probe together, at most
@@ -106,6 +117,9 @@ def identify(conn: Channel, clock: Callable[[], float] = time.monotonic,
 		prompt = conn.find_prompt()
 	except ValueError:
 		return Detection(problem="The device showed no prompt")
+	if ANY_KEY.search(prompt):
+		conn.write_channel(conn.RETURN)
+		prompt = conn.find_prompt()
 	if DISCLAIMER.search(prompt):
 		return Detection(problem="The device shows a login disclaimer")
 	known = identities()
@@ -120,10 +134,19 @@ def identify(conn: Channel, clock: Callable[[], float] = time.monotonic,
 			return Detection(problem=f"Its answer fits {' and '.join(sorted(claims))}")
 		if claims:
 			name, line = claims.popitem()
-			platform = PLATFORMS.get(name)
-			return Detection(platform=name if platform else None, detected=name, evidence=line,
-			                 hostname=hostname(platform.prompt_name if platform else NAME_CISCO, prompt))
+			return Detection(platform=name if name in PLATFORMS else None, detected=name, evidence=line,
+			                 hostname=_name(name, answer, prompt))
 	return Detection()
+
+
+def _name(found: str, answer: str, prompt: str) -> str | None:
+	""":returns: the device's name - where its platform's answer says it (a
+	 prompt can be set to anything: IOS's "prompt" command), else from its
+	 prompt; None when neither says"""
+	platform = PLATFORMS.get(found)
+	if platform and platform.answer_name and (named := platform.answer_name.search(answer)):
+		return named.group("name")
+	return hostname(platform.prompt_name if platform else NAME_CISCO, prompt)
 
 
 def probes(prompt: str, known: dict[str, Identity]) -> list[tuple[str, str]]:

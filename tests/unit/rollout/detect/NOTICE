@@ -1,0 +1,441 @@
+Recorded device outputs, used as test data for platform detection
+(tests/unit/rollout/test_detect.py): each folder is what the file must be
+detected as (none: nothing NetRollout names).
+
+They come from these Apache-2.0 projects, unchanged; the licence is in
+LICENSE-Apache-2.0 beside this file:
+- ntc-templates, Network to Code (https://github.com/networktocode/ntc-templates)
+- genieparser, Cisco Systems (https://github.com/CiscoTestAutomation/genieparser)
+- napalm (https://github.com/napalm-automation/napalm)
+- oxidized (https://github.com/ytti/oxidized), and others as listed
+
+Each file and where it came from:
+
+arista_eos/show_version__arista_eos_show_version.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/arista_eos/show_version/arista_eos_show_version.raw
+
+arista_eos/show_version__arista_eos_show_version2.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/arista_eos/show_version/arista_eos_show_version2.raw
+
+arista_eos/show_version__arista_eos_show_version3.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/arista_eos/show_version/arista_eos_show_version3.raw
+
+arista_eos/show_version__arista_eos_show_version_ceos.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/arista_eos/show_version/arista_eos_show_version_ceos.raw
+
+arista_eos/show_version__arista_eos_show_version_clab.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/arista_eos/show_version/arista_eos_show_version_clab.raw
+
+aruba_aoscx/show_version__oxidized_6000-48G_PL.10.13.0005.decoded.txt
+    https://github.com/ytti/oxidized/blob/master/spec/model/data/aoscx%236000-48G_PL.10.13.0005%23simulation.yaml
+
+aruba_aoscx/show_version__oxidized_6100-48G_PL.10.10.1090.decoded.txt
+    https://github.com/ytti/oxidized/blob/master/spec/model/data/aoscx%236100-48G_PL.10.10.1090%23simulation.yaml
+
+aruba_aoscx/show_version__oxidized_6300M-48G-4SFP56_10.13.1101.decoded.txt
+    https://github.com/ytti/oxidized/blob/master/spec/model/data/aoscx%236300M-48G-4SFP56_10.13.1101%23simulation.yaml
+
+aruba_aoscx/show_version__oxidized_8100-48XF4C_LL.10.13.1050.decoded.txt
+    https://github.com/ytti/oxidized/blob/master/spec/model/data/aoscx%238100-48XF4C_LL.10.13.1050%23simulation.yaml
+
+aruba_aoscx/show_version__oxidized_8325H_HL.10.15.1020.decoded.txt
+    https://github.com/ytti/oxidized/blob/master/spec/model/data/aoscx%238325H_HL.10.15.1020%23simulation.yaml
+
+aruba_aoscx/show_version__oxidized_CX6000-8G_10.16.1010_environment.decoded.txt
+    https://github.com/ytti/oxidized/blob/master/spec/model/data/aoscx%23CX6000-8G_10.16.1010_environment%23simulation.yaml
+
+aruba_aoscx/show_version__oxidized_R0X25A-6410_FL.10.10.1100.decoded.txt
+    https://github.com/ytti/oxidized/blob/master/spec/model/data/aoscx%23R0X25A-6410_FL.10.10.1100%23simulation.yaml
+
+aruba_aoscx/show_version__oxidized_R8N85A-C6000-48G-CL4_PL.10.08.1010.decoded.txt
+    https://github.com/ytti/oxidized/blob/master/spec/model/data/aoscx%23R8N85A-C6000-48G-CL4_PL.10.08.1010%23simulation.yaml
+
+checkpoint_gaia/genie_gaia_show_version_R80.40.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/gaia/tests/ShowVersion/cli/equal/golden_output_output.txt
+
+checkpoint_gaia/show_version_all__checkpoint_gaia_show_version_all.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/checkpoint_gaia/show_version_all/checkpoint_gaia_show_version_all.raw
+
+cisco_aci/genie_nxos_golden_output_4_output.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/master/src/genie/libs/parser/nxos/tests/ShowVersion/cli/equal/golden_output_4_output.txt
+
+cisco_aci/show_version__cisco_nxos_show_version1.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_nxos/show_version/cisco_nxos_show_version1.raw
+
+cisco_asa/asa_ShowVersion_g1.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/asa/tests/ShowVersion/cli/equal/golden_output1_output.txt
+
+cisco_asa/asa_ShowVersion_g2.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/asa/tests/ShowVersion/cli/equal/golden_output2_output.txt
+
+cisco_asa/asa_ShowVersion_g3.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/asa/tests/ShowVersion/cli/equal/golden_output3_output.txt
+
+cisco_asa/asa_ShowVersion_g4.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/asa/tests/ShowVersion/cli/equal/golden_output4_output.txt
+
+cisco_asa/generic_ShowVersion_g_asa_1.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_asa_1_output.txt
+
+cisco_asa/generic_ShowVersion_g_asa_2.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_asa_2_output.txt
+
+cisco_asa/show_version__cisco_asa_show_version1.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_asa/show_version/cisco_asa_show_version1.raw
+
+cisco_asa/show_version__cisco_asa_show_version2.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_asa/show_version/cisco_asa_show_version2.raw
+
+cisco_asa/show_version__cisco_asa_show_version3.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_asa/show_version/cisco_asa_show_version3.raw
+
+cisco_asa/show_version__cisco_asa_show_version4.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_asa/show_version/cisco_asa_show_version4.raw
+
+cisco_ios/generic_ShowVersion_g_ios_3.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_ios_3_output.txt
+
+cisco_ios/generic_ShowVersion_g_ios_4.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_ios_4_output.txt
+
+cisco_ios/generic_ShowVersion_g_ios_5.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_ios_5_output.txt
+
+cisco_ios/generic_ShowVersion_g_ios_asr901.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_ios_asr901_output.txt
+
+cisco_ios/generic_ShowVersion_g_ios_c2600.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_ios_c2600_output.txt
+
+cisco_ios/generic_ShowVersion_g_ios_c2600_2.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_ios_c2600_2_output.txt
+
+cisco_ios/generic_ShowVersion_g_ios_cat6k.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_ios_cat6k_output.txt
+
+cisco_ios/genie_ios_device_output_output.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/master/src/genie/libs/parser/ios/tests/ShowVersion/cli/equal/device_output_output.txt
+
+cisco_ios/genie_ios_golden_output_ios_1_output.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/master/src/genie/libs/parser/ios/tests/ShowVersion/cli/equal/golden_output_ios_1_output.txt
+
+cisco_ios/genie_ios_golden_output_ios_2_output.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/master/src/genie/libs/parser/ios/tests/ShowVersion/cli/equal/golden_output_ios_2_output.txt
+
+cisco_ios/genie_ios_golden_output_ios_c1900_output.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/master/src/genie/libs/parser/ios/tests/ShowVersion/cli/equal/golden_output_ios_c1900_output.txt
+
+cisco_ios/genie_ios_golden_output_ios_cat6k_output.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/master/src/genie/libs/parser/ios/tests/ShowVersion/cli/equal/golden_output_ios_cat6k_output.txt
+
+cisco_ios/genie_ios_golden_output_ios_output.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/master/src/genie/libs/parser/ios/tests/ShowVersion/cli/equal/golden_output_ios_output.txt
+
+cisco_ios/genie_ios_golden_output_iosv_output.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/master/src/genie/libs/parser/ios/tests/ShowVersion/cli/equal/golden_output_iosv_output.txt
+
+cisco_ios/ios_cat6k_ShowVersion_g.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/ios/cat6k/tests/ShowVersion/cli/equal/golden_output_output.txt
+
+cisco_ios/ios_cat6k_ShowVersion_g_1.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/ios/cat6k/tests/ShowVersion/cli/equal/golden_output_1_output.txt
+
+cisco_ios/ios_cat7k_c7600_ShowVersion_g.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/ios/cat7k/c7600/tests/ShowVersion/cli/equal/golden_output_output.txt
+
+cisco_ios/iosxe_ShowVersion_g_asr901.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/iosxe/tests/ShowVersion/cli/equal/golden_output_asr901_output.txt
+
+cisco_ios/iosxe_ShowVersion_g_ios_1.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/iosxe/tests/ShowVersion/cli/equal/golden_output_ios_1_output.txt
+
+cisco_ios/iosxe_ShowVersion_g_ios_2.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/iosxe/tests/ShowVersion/cli/equal/golden_output_ios_2_output.txt
+
+cisco_ios/show_version__cisco_ios_show_version.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_ios/show_version/cisco_ios_show_version.raw
+
+cisco_ios/show_version__cisco_ios_show_version3.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_ios/show_version/cisco_ios_show_version3.raw
+
+cisco_ios/show_version__cisco_ios_show_version6.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_ios/show_version/cisco_ios_show_version6.raw
+
+cisco_ios/show_version__cisco_ios_show_version_01.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_ios/show_version/cisco_ios_show_version_01.raw
+
+cisco_nxos/genie_nxos_golden_output_1_output.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/master/src/genie/libs/parser/nxos/tests/ShowVersion/cli/equal/golden_output_1_output.txt
+
+cisco_nxos/genie_nxos_golden_output_2_output.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/master/src/genie/libs/parser/nxos/tests/ShowVersion/cli/equal/golden_output_2_output.txt
+
+cisco_nxos/genie_nxos_golden_output_3_output.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/master/src/genie/libs/parser/nxos/tests/ShowVersion/cli/equal/golden_output_3_output.txt
+
+cisco_nxos/genie_nxos_golden_output_output.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/master/src/genie/libs/parser/nxos/tests/ShowVersion/cli/equal/golden_output_output.txt
+
+cisco_nxos/show_version__cisco_nxos_show_version.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_nxos/show_version/cisco_nxos_show_version.raw
+
+cisco_nxos/show_version__cisco_nxos_show_version3.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_nxos/show_version/cisco_nxos_show_version3.raw
+
+cisco_nxos/show_version__cisco_nxos_show_version4.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_nxos/show_version/cisco_nxos_show_version4.raw
+
+cisco_nxos/show_version__cisco_nxos_show_version5.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_nxos/show_version/cisco_nxos_show_version5.raw
+
+cisco_nxos/show_version__cisco_nxos_show_version6.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_nxos/show_version/cisco_nxos_show_version6.raw
+
+cisco_nxos/show_version__cisco_nxos_show_version7.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_nxos/show_version/cisco_nxos_show_version7.raw
+
+cisco_nxos/web_napalm_nxos_ssh_7009_6_2_14.txt
+    https://github.com/napalm-automation/napalm/blob/develop/test/nxos_ssh/mocked_data/test_get_facts/7009_6_2_14/show_version.txt
+
+cisco_nxos/web_napalm_nxos_ssh_N93180.txt
+    https://github.com/napalm-automation/napalm/blob/develop/test/nxos_ssh/mocked_data/test_get_facts/N93180/show_version.txt
+
+cisco_nxos/web_napalm_nxos_ssh_issue2151.txt
+    https://github.com/napalm-automation/napalm/blob/develop/test/nxos_ssh/mocked_data/test_get_facts/issue2151/show_version.txt
+
+cisco_nxos/web_napalm_nxos_ssh_missing_domain.txt
+    https://github.com/napalm-automation/napalm/blob/develop/test/nxos_ssh/mocked_data/test_get_facts/missing_domain/show_version.txt
+
+cisco_nxos/web_napalm_nxos_ssh_newer_version.txt
+    https://github.com/napalm-automation/napalm/blob/develop/test/nxos_ssh/mocked_data/test_get_facts/newer_version/show_version.txt
+
+cisco_xe/generic_ShowVersion_g_iosxe_1.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_iosxe_1_output.txt
+
+cisco_xe/generic_ShowVersion_g_iosxe_2.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_iosxe_2_output.txt
+
+cisco_xe/generic_ShowVersion_g_iosxe_3.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_iosxe_3_output.txt
+
+cisco_xe/generic_ShowVersion_g_iosxe_4.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_iosxe_4_output.txt
+
+cisco_xe/generic_ShowVersion_g_iosxe_5.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_iosxe_5_output.txt
+
+cisco_xe/generic_ShowVersion_g_iosxe_asr1k.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_iosxe_asr1k_output.txt
+
+cisco_xe/generic_ShowVersion_g_iosxe_c3850.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_iosxe_c3850_output.txt
+
+cisco_xe/generic_ShowVersion_g_iosxe_c4507.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_iosxe_c4507_output.txt
+
+cisco_xe/generic_ShowVersion_g_iosxe_c9300.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_iosxe_c9300_output.txt
+
+cisco_xe/generic_ShowVersion_g_iosxe_csr1000v.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_iosxe_csr1000v_output.txt
+
+cisco_xe/generic_ShowVersion_g_iosxe_isr4k.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_iosxe_isr4k_output.txt
+
+cisco_xe/generic_ShowVersion_g_iosxe_isr4k_2.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_iosxe_isr4k_2_output.txt
+
+cisco_xe/iosxe_ShowVersion_g_10.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/iosxe/tests/ShowVersion/cli/equal/golden_output_10_output.txt
+
+cisco_xe/iosxe_ShowVersion_g_1783.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/iosxe/tests/ShowVersion/cli/equal/golden_output_1783_output.txt
+
+cisco_xe/iosxe_ShowVersion_g_6.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/iosxe/tests/ShowVersion/cli/equal/golden_output_6_output.txt
+
+cisco_xe/iosxe_ShowVersion_g_8.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/iosxe/tests/ShowVersion/cli/equal/golden_output_8_output.txt
+
+cisco_xe/iosxe_ShowVersion_g_9.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/iosxe/tests/ShowVersion/cli/equal/golden_output_9_output.txt
+
+cisco_xe/iosxe_ShowVersion_g_9500h_standalone.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/iosxe/tests/ShowVersion/cli/equal/golden_output_9500h_standalone_output.txt
+
+cisco_xe/iosxe_ShowVersion_g_9500h_svl.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/iosxe/tests/ShowVersion/cli/equal/golden_output_9500h_svl_output.txt
+
+cisco_xe/iosxe_ShowVersion_g_IE_3105_18T2C.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/iosxe/tests/ShowVersion/cli/equal/golden_output_IE_3105_18T2C_output.txt
+
+cisco_xe/iosxe_ShowVersion_g_c8000v.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/iosxe/tests/ShowVersion/cli/equal/golden_output_c8000v_output.txt
+
+cisco_xe/iosxe_ShowVersion_g_c9300.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/iosxe/tests/ShowVersion/cli/equal/golden_output_c9300_output.txt
+
+cisco_xe/iosxe_ShowVersion_g_c9800.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/iosxe/tests/ShowVersion/cli/equal/golden_output_c9800_output.txt
+
+cisco_xe/iosxe_ShowVersion_g_standby.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/iosxe/tests/ShowVersion/cli/equal/golden_output_standby_output.txt
+
+cisco_xe/iosxe_cat9k_c9500_ShowVersion_g.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/iosxe/cat9k/c9500/tests/ShowVersion/cli/equal/golden_output_output.txt
+
+cisco_xe/show_version__cisco_ios_show_version1.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_ios/show_version/cisco_ios_show_version1.raw
+
+cisco_xe/show_version__cisco_ios_show_version2.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_ios/show_version/cisco_ios_show_version2.raw
+
+cisco_xe/show_version__cisco_ios_show_version4.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_ios/show_version/cisco_ios_show_version4.raw
+
+cisco_xe/show_version__cisco_ios_show_version5.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_ios/show_version/cisco_ios_show_version5.raw
+
+cisco_xe/show_version__cisco_ios_show_version_special_build.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_ios/show_version/cisco_ios_show_version_special_build.raw
+
+cisco_xr/generic_ShowVersion_g_iosxr_3.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_iosxr_3_output.txt
+
+cisco_xr/generic_ShowVersion_g_iosxr_5.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_iosxr_5_output.txt
+
+cisco_xr/generic_rv1_ShowVersion_g_iosxr_6.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/rv1/tests/ShowVersion/cli/equal/golden_output_iosxr_6_output.txt
+
+cisco_xr/generic_rv1_ShowVersion_g_iosxr_7.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/rv1/tests/ShowVersion/cli/equal/golden_output_iosxr_7_output.txt
+
+cisco_xr/generic_rv1_ShowVersion_g_iosxr_8.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/rv1/tests/ShowVersion/cli/equal/golden_output_iosxr_8_output.txt
+
+cisco_xr/generic_rv1_ShowVersion_g_iosxr_9.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/rv1/tests/ShowVersion/cli/equal/golden_output_iosxr_9_output.txt
+
+cisco_xr/genie_iosxr_golden_output_1_output.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/master/src/genie/libs/parser/iosxr/tests/ShowVersion/cli/equal/golden_output_1_output.txt
+
+cisco_xr/genie_iosxr_golden_output_2_output.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/master/src/genie/libs/parser/iosxr/tests/ShowVersion/cli/equal/golden_output_2_output.txt
+
+cisco_xr/genie_iosxr_golden_output_3_output.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/master/src/genie/libs/parser/iosxr/tests/ShowVersion/cli/equal/golden_output_3_output.txt
+
+cisco_xr/genie_iosxr_golden_output_4_output.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/master/src/genie/libs/parser/iosxr/tests/ShowVersion/cli/equal/golden_output_4_output.txt
+
+cisco_xr/show_version__cisco_xr_show_version.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_xr/show_version/cisco_xr_show_version.raw
+
+cisco_xr/show_version__cisco_xr_show_version2.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_xr/show_version/cisco_xr_show_version2.raw
+
+cisco_xr/show_version__cisco_xr_show_version_01.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_xr/show_version/cisco_xr_show_version_01.raw
+
+cisco_xr/show_version__cisco_xr_show_version_crs.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_xr/show_version/cisco_xr_show_version_crs.raw
+
+cisco_xr/show_version__cisco_xr_show_version_label.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_xr/show_version/cisco_xr_show_version_label.raw
+
+cisco_xr/show_version_brief__cisco_xr_show_version_brief.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/cisco_xr/show_version_brief/cisco_xr_show_version_brief.raw
+
+cisco_xr/web_napalm_iosxr_show_version.txt
+    https://github.com/napalm-automation/napalm/blob/develop/test/iosxr/iosxr/mock_data/show_version.txt
+
+fortinet/get_system_status__fortinet_get_system_status.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/fortinet/get_system_status/fortinet_get_system_status.raw
+
+fortinet/get_system_status__fortinet_get_system_status_6.2.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/fortinet/get_system_status/fortinet_get_system_status_6.2.raw
+
+fortinet/get_system_status__fortinet_get_system_status_7.0.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/fortinet/get_system_status/fortinet_get_system_status_7.0.raw
+
+fortinet/get_system_status__fortinet_get_system_status_7.0_1801f.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/fortinet/get_system_status/fortinet_get_system_status_7.0_1801f.raw
+
+fortinet/get_system_status__fortinet_get_system_status_7.0_40f.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/fortinet/get_system_status/fortinet_get_system_status_7.0_40f.raw
+
+fortinet/get_system_status__fortinet_get_system_status_7.0_eval.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/fortinet/get_system_status/fortinet_get_system_status_7.0_eval.raw
+
+fortinet/get_system_status__fortinet_get_system_status_7.4.8.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/fortinet/get_system_status/fortinet_get_system_status_7.4.8.raw
+
+fortinet/get_system_status__fortinet_get_system_status_7.4.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/fortinet/get_system_status/fortinet_get_system_status_7.4.raw
+
+hp_comware/display_version__cmw7_h3c_secpath_vfw1000_7.1.064_netdriver.txt
+    https://github.com/OpenSecFlow/netdriver/blob/main/packages/simunet/src/netdriver_simunet/server/handlers/h3c/h3c_vsr.yml
+
+hp_comware/display_version__cmw7_hp_vsr1000_7.1.049_unicon.txt
+    https://github.com/CiscoTestAutomation/unicon.plugins/blob/master/src/unicon/plugins/tests/mock_data/comware/comware_data.yaml
+
+hp_comware/display_version__cmw7_hpe_5130ei_7.1.070_oxidized.decoded.txt
+    https://github.com/ytti/oxidized/blob/master/spec/model/data/h3c%235130-48G_7.1.070%23simulation.yaml
+
+hp_procurve/show_version__aruba_os_show_version.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/aruba_os/show_version/aruba_os_show_version.raw
+
+huawei/display_version__huawei_vrp_display_version.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/huawei_vrp/display_version/huawei_vrp_display_version.raw
+
+huawei/display_version__huawei_vrp_display_version1.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/huawei_vrp/display_version/huawei_vrp_display_version1.raw
+
+huawei/display_version__huawei_vrp_display_version2.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/huawei_vrp/display_version/huawei_vrp_display_version2.raw
+
+huawei/display_version__huawei_vrp_display_version3.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/huawei_vrp/display_version/huawei_vrp_display_version3.raw
+
+huawei/display_version__huawei_vrp_display_version4.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/huawei_vrp/display_version/huawei_vrp_display_version4.raw
+
+huawei/display_version__huawei_vrp_display_version5.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/huawei_vrp/display_version/huawei_vrp_display_version5.raw
+
+huawei/display_version__huawei_vrp_display_version6.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/huawei_vrp/display_version/huawei_vrp_display_version6.raw
+
+juniper_junos/genie_junos_golden_output_output.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/master/src/genie/libs/parser/junos/tests/ShowVersion/cli/equal/golden_output_output.txt
+
+juniper_junos/junos_ShowVersionDetail_g.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/junos/tests/ShowVersionDetail/cli/equal/golden_output_output.txt
+
+juniper_junos/show_version__juniper_junos_show_version.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/juniper_junos/show_version/juniper_junos_show_version.raw
+
+juniper_junos/show_version__juniper_junos_show_version_ex.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/juniper_junos/show_version/juniper_junos_show_version_ex.raw
+
+juniper_junos/show_version__juniper_junos_show_version_qfx5100.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/juniper_junos/show_version/juniper_junos_show_version_qfx5100.raw
+
+juniper_junos/show_version__juniper_junos_show_version_srx_cluster.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/juniper_junos/show_version/juniper_junos_show_version_srx_cluster.raw
+
+juniper_junos/show_version__juniper_junos_show_version_vmhost.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/juniper_junos/show_version/juniper_junos_show_version_vmhost.raw
+
+none/generic_ShowVersion_g_viptella_1.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_viptella_1_output.txt
+
+none/generic_ShowVersion_g_wireless_ap_1.txt
+    https://github.com/CiscoTestAutomation/genieparser/blob/main/src/genie/libs/parser/generic/tests/ShowVersion/cli/equal/golden_output_wireless_ap_1_output.txt
+
+none/show_version__hp_procurve_show_version.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/hp_procurve/show_version/hp_procurve_show_version.raw
+
+paloalto_panos/show_system_info__paloalto_panos_show_system_info.raw
+    https://github.com/networktocode/ntc-templates/blob/master/tests/paloalto_panos/show_system_info/paloalto_panos_show_system_info.raw

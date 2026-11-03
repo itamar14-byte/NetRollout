@@ -480,8 +480,9 @@ def text(*words: str) -> tuple[re.Pattern[str], ...]:
 
 
 def line_start(*words: str) -> tuple[re.Pattern[str], ...]:
-	""":returns: each text as a pattern matching it at a line's start"""
-	return tuple(re.compile("^" + re.escape(w), re.MULTILINE) for w in words)
+	""":returns: each text as a pattern matching it at a line's start (after
+	 any indentation)"""
+	return tuple(re.compile(r"^[ \t]*" + re.escape(w), re.MULTILINE) for w in words)
 
 
 # The device's name in its prompt (the group "name"), per prompt family - the
@@ -493,8 +494,10 @@ NAME_CISCO = re.compile(r"^(?:\S*:)?(?P<name>[^\s:#>()]+)(?:\([^)]*\))?\s*[#>]\s
 NAME_AT = re.compile(r"^[^@\s]+@(?P<name>[^\s:#>%()]+)(?:\([^)]*\))?(?::\S*)?\s*[#>%]\s*$")
 # FortiOS "FGT01 #" (VDOMs: "FGT01 (root) #"; read-only admins "$")
 NAME_FORTIOS = re.compile(r"^(?P<name>\S+?)(?: \([^)]*\))? [#$]\s*$")
-# Comware's user view "<HPE>" (system view "[HPE]")
-NAME_COMWARE = re.compile(r"^[<\[](?P<name>[^>\]\s]+)[>\]]\s*$")
+# Comware's user view "<HPE>" (system view "[HPE]"; an RBM pair's "RBM_P<HPE>")
+NAME_COMWARE = re.compile(r"^(?:RBM_.)?[<\[](?P<name>[^>\]\s]+)[>\]]\s*$")
+# ProCurve "HP-2920-48G#", "ProCurve(config)#" - a name may hold spaces
+NAME_PROCURVE = re.compile(r"^(?P<name>[^#>()]+?)(?:\([^)]*\))?\s*[#>]\s*$")
 # Gaia clish "gw:0>" (":0" the VSX context), expert "[Expert@gw:0]#"
 NAME_GAIA = re.compile(r"^(?:\[Expert@)?(?P<name>[^\s:#>\]]+)(?::\d+)?\]?\s*[#>]\s*$")
 
@@ -561,6 +564,10 @@ class Platform:
 	# tests/unit/rollout/test_detect.py) and its name in its prompt
 	identity: Identity | None = None
 	prompt_name: re.Pattern[str] = NAME_CISCO
+	# its name in the probe's answer, where it says it (IOS "R1 uptime is",
+	# NX-OS "Device name:") - preferred over the prompt, which IOS's "prompt"
+	# command can change
+	answer_name: re.Pattern[str] | None = None
 
 	def row(self) -> dict[str, str]:
 		""":returns: the platform's row in the grammar table (COLUMNS), in
@@ -815,6 +822,8 @@ _RUN_ALL = whole_config("show running-config all")
 _SHOW_VERSION = "show version"
 # user@name prompts - Junos, PAN-OS
 _USER_AT = re.compile(r"^[^@\s]+@\S+?[>#%]\s*$")
+# IOS / IOS-XE / IOS-XR: "R1 uptime is 2 weeks" (a stack's "Switch uptime" has no "is")
+_UPTIME_NAME = re.compile(r"^(?P<name>\S+) uptime is ", re.MULTILINE)
 # Junos root's Unix shell: "root@srx:~ #", "root@srx%", "root@:RE:0%"
 _JUNOS_ROOT_SHELL = re.compile(r"^root@[^\s>]*(?::\S*\s*#|\s*%)\s*$")
 
@@ -829,17 +838,22 @@ PLATFORMS: dict[str, Platform] = {
 		       "events": "*/. time stamps, uptime stamps, sequence numbers, %FAC-N-MNEMONIC"},
 		sources={"read": "lab", "left_out": "doc", "saved": "doc", "layout": "lab", "navigation": "doc",
 		         "removal": "lab", "exec": "lab", "defaults": "lab", "events": "doc"},
-		# an IOS-XE or IOS-XR answer says "Cisco IOS Software" too
-		identity=Identity(_SHOW_VERSION, text("Cisco IOS Software", "Cisco Internetwork Operating System Software"),
-		                  unless=text("IOS XE", "IOS-XE", "IOS XR"))),
+		# 12.x: "Cisco Internetwork Operating System Software" / "IOS (tm)"; an
+		# IOS-XE answer says "Cisco IOS Software" too
+		identity=Identity(_SHOW_VERSION, text("Cisco IOS Software", "Cisco Internetwork Operating System Software",
+		                                      "IOS (tm)"),
+		                  unless=text("IOS XE", "IOS-XE", "IOS XR")),
+		answer_name=_UPTIME_NAME),
 	"cisco_xe": Platform(
 		SaveConfig(), framing=_IOS_FRAMING, show_saved="show startup-config",
 		exec_words=_CISCO_EXEC, defaults=_RUN_ALL, navigation=_CISCO_NAV, negation=_NO,
 		about={"left_out": "as IOS", "saved": "write mem; show startup-config", "events": "as IOS"},
 		sources={"read": "doc", "left_out": "doc", "saved": "doc", "layout": "doc", "navigation": "doc",
 		         "removal": "doc", "exec": "doc", "defaults": "doc", "events": "doc"},
-		# 16.x and later; 3.x prints "IOS-XE Software"
-		identity=Identity(_SHOW_VERSION, text("Cisco IOS XE Software", "IOS-XE Software"))),
+		# 16.x and later; 3.x "IOS-XE Software"; early 16.x (Cat3850 16.4) only
+		# "Cisco IOS-XE software"
+		identity=Identity(_SHOW_VERSION, text("Cisco IOS XE Software", "IOS-XE Software", "Cisco IOS-XE software")),
+		answer_name=_UPTIME_NAME),
 	"cisco_nxos": Platform(
 		SaveConfig(), show_saved="show startup-config",
 		exec_words=_CONFIG_EXEC, defaults=_RUN_ALL, navigation=_CISCO_NAV, negation=_NO,
@@ -849,7 +863,11 @@ PLATFORMS: dict[str, Platform] = {
 		       "events": "2026 Oct 21 10:00:00 … %ETHPORT-5-IF_UP"},
 		sources={"read": "lab", "left_out": "lab", "saved": "doc", "layout": "lab", "navigation": "doc",
 		         "removal": "lab", "exec": "lab", "defaults": "lab", "events": "lab"},
-		identity=Identity(_SHOW_VERSION, text("Cisco Nexus Operating System"))),
+		# the whole header (the login banner says "Cisco NX-OS Software"); ACI
+		# leaves and MDS print it too - named, not NX-OS (detect.NEIGHBOURS)
+		identity=Identity(_SHOW_VERSION, text("Cisco Nexus Operating System (NX-OS) Software"),
+		                  unless=text("aci-n9000", "cisco MDS")),
+		answer_name=re.compile(r"Device name: (?P<name>\S+)")),
 	# a failed commit reverts the running config; leaving config mode
 	# (Netmiko answers "no" to "commit them?") drops the pending changes.
 	# No documented defaults view
@@ -864,7 +882,8 @@ PLATFORMS: dict[str, Platform] = {
 		# lab: XR1, IOS XRv 9000 7.1.1 (2026-10-24)
 		sources={"read": "lab", "left_out": "lab", "saved": "lab", "layout": "lab", "navigation": "lab",
 		         "removal": "lab", "exec": "lab", "defaults": "unverified", "events": "doc"},
-		identity=Identity(_SHOW_VERSION, text("Cisco IOS XR Software"))),
+		identity=Identity(_SHOW_VERSION, text("Cisco IOS XR Software")),
+		answer_name=_UPTIME_NAME),
 	# "show running-config all": EOS (Ansible's eos_config defaults; Arista
 	# also documents "show active all"), AOS-CX ("all: Shows all default
 	# values for the current running configuration")
@@ -898,8 +917,9 @@ PLATFORMS: dict[str, Platform] = {
 		       "events": "I 10/21/26 10:00:00 … (the event log's shape)"},
 		sources={"read": "doc", "left_out": "inferred", "saved": "doc", "layout": "doc", "navigation": "doc",
 		         "removal": "doc", "exec": "doc", "defaults": "doc", "events": "doc"},
-		# ProCurve and ArubaOS-Switch
-		identity=Identity(_SHOW_VERSION, text("Image stamp:"))),
+		# ProCurve and ArubaOS-Switch (the build path after it may wrap)
+		identity=Identity(_SHOW_VERSION, text("Image stamp:")),
+		prompt_name=NAME_PROCURVE),
 	# Comware: display / save in any view (ping / tracert too on V7);
 	# "display current-configuration" has no "all" in V7 - not relied on
 	"hp_comware": Comware(
@@ -911,9 +931,10 @@ PLATFORMS: dict[str, Platform] = {
 		       "defaults": "none (no 'all' in V7)", "events": "%Oct 21 … / #… traps / %0.1… before the clock"},
 		sources={"read": "doc", "left_out": "doc", "saved": "doc", "layout": "doc", "navigation": "doc",
 		         "removal": "doc", "exec": "doc", "defaults": "doc", "events": "doc"},
-		# HP, HPE and H3C builds
-		identity=Identity("display version", text("HPE Comware", "HP Comware", "H3C Comware"),
-		                  prompt=re.compile(r"^<[^>\s]+>\s*$")),
+		# CMW5 and CMW7, HP, HPE and H3C builds ("H3C Comware Platform Software"
+		# on CMW5) - all print "Comware Software, Version"
+		identity=Identity("display version", text("Comware Software, Version"),
+		                  prompt=re.compile(r"^(?:RBM_.)?<[^>\s]+>\s*$")),
 		prompt_name=NAME_COMWARE),
 	# configuration mode's own non-configuration commands: run, show, status,
 	# help, save (to a file); defaults aren't shown as set lines
@@ -928,10 +949,13 @@ PLATFORMS: dict[str, Platform] = {
 		# lab: JS1, vJunos-switch 24.4R1.9 (2026-10-24)
 		sources={"read": "lab", "left_out": "lab", "saved": "lab", "layout": "lab", "navigation": "lab",
 		         "removal": "lab", "exec": "lab", "defaults": "doc", "events": "inferred"},
-		# classic ("JUNOS Software Release") and newer ("Junos: 21.4R1") formats
-		identity=Identity(_SHOW_VERSION, text("JUNOS Software Release", "JUNOS OS Kernel") + line_start("Junos: "),
+		# 15.1+ "Junos: 24.4R1.9" (Evolved "Junos: 22.4R1.11-EVO", "JUNOS-EVO"),
+		# older "JUNOS Software Release [...]" / "JUNOS Base OS", EX 13.2X51
+		# only "JUNOS EX  Software Suite" - an uppercase JUNOS at a line's start
+		identity=Identity(_SHOW_VERSION, text("JUNOS Software Release", "JUNOS OS Kernel", "JUNOS Base OS",
+		                                      "JUNOS-EVO") + line_start("Junos: ", "JUNOS "),
 		                  prompt=_USER_AT, shell=Shell(_JUNOS_ROOT_SHELL, 'cli -c "{}"')),
-		prompt_name=NAME_AT),
+		prompt_name=NAME_AT, answer_name=re.compile(r"^[ \t]*Hostname: (?P<name>\S+)", re.MULTILINE)),
 	# revert config (8.0+); loading the running config into the candidate
 	# discards too, also on older releases. Both act on the shared candidate
 	"paloalto_panos": PanOS(
@@ -949,9 +973,12 @@ PLATFORMS: dict[str, Platform] = {
 		# lab: PA1, PAN-OS 11.2.5 (2026-10-24)
 		sources={"read": "lab", "left_out": "lab", "saved": "lab", "layout": "lab", "navigation": "lab",
 		         "removal": "lab", "exec": "lab", "defaults": "doc", "events": "unverified"},
-		# firewalls and Panorama (PAN-OS too)
-		identity=Identity("show system info", text("model: PA-", "model: Panorama"), prompt=_USER_AT),
-		prompt_name=NAME_AT),
+		# firewalls ("model: PA-VM", "PA-3250"), Panorama's VM ("model: Panorama")
+		# and M-series appliances ("model: M-100") - PAN-OS too; at a line's start
+		# (a Panorama's default hostname is "Panorama")
+		identity=Identity("show system info", line_start("model: PA-", "model: Panorama", "model: M-"),
+		                  prompt=_USER_AT),
+		prompt_name=NAME_AT, answer_name=re.compile(r"^[ \t]*hostname: (?P<name>\S+)", re.MULTILINE)),
 	# "lock database override" opens most snippets
 	"checkpoint_gaia": Gaia(
 		RunCommand("save config"), ("show configuration",), flat=True,
@@ -962,7 +989,8 @@ PLATFORMS: dict[str, Platform] = {
 		# lab: CP1, Gaia R81.20 (2026-10-24), clish and expert (bash) login shells
 		sources={"read": "lab", "left_out": "lab", "saved": "lab", "layout": "lab", "navigation": "lab",
 		         "removal": "lab", "exec": "lab", "defaults": "doc", "events": "inferred"},
-		identity=Identity("show version all", text("Check Point Gaia"),
+		identity=Identity("show version all", text("Product version Check Point Gaia"),
+		                  prompt=re.compile(r"^[^\s:>]+:\d+>\s*$"),
 		                  shell=Shell(re.compile(r"^\[Expert@"), 'clish -c "{}"')),
 		prompt_name=NAME_GAIA),
 	# Netmiko sets the console output to "standard" for the session (when it
@@ -977,8 +1005,12 @@ PLATFORMS: dict[str, Platform] = {
 		       "events": "none seen"},
 		sources={"read": "lab", "left_out": "lab", "saved": "doc", "layout": "lab", "navigation": "doc",
 		         "removal": "lab", "exec": "lab", "defaults": "lab", "events": "lab"},
-		identity=Identity("get system status", text("Version: FortiGate", "FortiOS"), prompt=NAME_FORTIOS),
-		prompt_name=NAME_FORTIOS),
+		# line 1 on 6.0 - 7.6, VM and hardware (FortiGateRugged too); 7.x prints no
+		# "FortiOS"; a bare "Version: Forti" would be FortiADC's too
+		identity=Identity("get system status",
+		                  line_start("Version: FortiGate", "Version: FortiWiFi", "Version: Fortigate"),
+		                  prompt=NAME_FORTIOS),
+		prompt_name=NAME_FORTIOS, answer_name=re.compile(r"^Hostname: (?P<name>\S+)", re.MULTILINE)),
 }
 
 # PAN-OS commits can take minutes; Netmiko waits 120 s by default

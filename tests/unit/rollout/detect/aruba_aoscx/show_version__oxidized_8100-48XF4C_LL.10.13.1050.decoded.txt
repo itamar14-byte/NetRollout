@@ -1,0 +1,15 @@
+show version
+-----------------------------------------------------------------------------
+ArubaOS-CX
+(c) Copyright 2017-2024 Hewlett Packard Enterprise Development LP
+-----------------------------------------------------------------------------
+Version      : LL.10.13.1050                                                 
+Build Date   : 2024-09-17 18:25:26 UTC                                       
+Build ID     : ArubaOS-CX:LL.10.13.1050:cecb15f7caf2:202409171810            
+Build SHA    : cecb15f7caf2faaef2012b823af45761e7c0ff5d                      
+Hot Patches  :                                                               
+Active Image : primary                       
+
+Service OS Version : LL.01.12.0004                 
+BIOS Version       : LL.01.0004                    
+TEST-SW1236# 

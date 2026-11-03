@@ -1,8 +1,11 @@
 """Platform detection (src/rollout/detect.py and each platform's Identity):
 which platform an answer is, the probes and their order, pagers, shells,
-the time limits, the hostname from the prompt. The answers here are short
-excerpts in each platform's documented format; recorded device outputs
-(tests/unit/rollout/detect/) pin every identity against real ones."""
+the time limits, the hostname. Every recorded device output in
+tests/unit/rollout/detect/ (Apache-2.0 projects, NOTICE there) must be
+claimed by its own platform alone; the short excerpts here add the cases
+no recorded output covers (vendor documentation and the research of
+2026-11-03: docs/plans/platform-detect-and-discover.md)."""
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import netmiko
@@ -47,7 +50,26 @@ ANSWERS = {
 	              "Cisco Adaptive Security Appliance Software Version 9.14(1)"),
 	"huawei": ("display version", "Huawei Versatile Routing Platform Software\nVRP (R) software, Version 8.180"),
 	"linux": ("show version", "-bash: show: command not found"),
+	# the edge cases (research 2026-11-03)
+	"cisco_xe (16.4 Cat3850)": ("show version",
+	                            "Cisco IOS Software, Catalyst L3 Switch Software (CAT3K_CAA-UNIVERSALK9-M), "
+	                            "Version Denali 16.4.1\nCisco IOS-XE software, Copyright (c) 2005-2016 by cisco"),
+	"cisco_ios (12.3 C2600)": ("show version", "IOS (tm) C2600 Software (C2600-I-M), Version 12.3(6)"),
+	"juniper_junos (EX 13.2X51)": ("show version",
+	                               "fpc0:\n----\nHostname: ex1\nModel: ex4300-48t\n"
+	                               "JUNOS EX  Software Suite [13.2X51-D35.3]"),
+	"juniper_junos (Evolved)": ("show version", "Hostname: ptx1\nModel: ptx10008\nJunos: 22.4R1.11-EVO"),
+	"paloalto_panos (M-100)": ("show system info", "hostname: M-100\nmodel: M-100\nfamily: m"),
+	"hp_comware (CMW5)": ("display version", "H3C Comware Platform Software\nComware Software, Version 5.20"),
+	"hp_procurve (wrapped stamp)": ("show version",
+	                                "Image stamp:\n  /ws/swbuildm/rel_tacoma_qaoff/code/build/btm\n  WB.15.15.0006"),
+	"cisco_aci": ("show version", "Cisco Nexus Operating System (NX-OS) Software\n"
+	                              "  kickstart image file is: /bootflash/aci-n9000-dk9.14.0.1h.bin"),
+	"cisco_mds": ("show version", "Cisco Nexus Operating System (NX-OS) Software\nHardware\n"
+	                              "  cisco MDS 9148S 16G 48 FC (1 Slot) Chassis"),
 }
+
+RECORDED = sorted(Path(__file__).parent.joinpath("detect").glob("*/*"))
 
 
 def claims(answer, probe):
@@ -67,6 +89,21 @@ def test_each_answer_is_claimed_by_its_platform_alone(case):
 	other identity - an IOS-XE never by IOS, an FTD never by ASA."""
 	probe, answer = ANSWERS[case]
 	assert claims(answer, probe) == [case.split(" ")[0]]
+
+
+@pytest.mark.parametrize("path", RECORDED, ids=lambda p: f"{p.parent.name}/{p.name}")
+def test_each_recorded_output_is_claimed_by_its_platform_alone(path):
+	"""A real device's answer (its folder names what it is; none: nothing
+	NetRollout names) is claimed by that identity and no other."""
+	answer = path.read_text(encoding="utf-8", errors="replace")
+	claimed = sorted(name for name, identity in identities().items() if identity.evidence(answer))
+	assert claimed == ([] if path.parent.name == "none" else [path.parent.name])
+
+
+def test_every_identity_is_tested_against_an_answer():
+	"""Each platform and neighbour has a recorded output or an excerpt here."""
+	tested = {p.parent.name for p in RECORDED} | {case.split(" ")[0] for case in ANSWERS}
+	assert set(identities()) <= tested
 
 
 def test_a_vendor_word_in_a_hostname_claims_nothing_else():
@@ -223,6 +260,46 @@ def test_a_pager_is_left_with_its_key(pager, key):
 	device = FakeDevice("R1#", {"show version": ANSWERS["cisco_ios"][1] + "\n" + pager}, pager=pager)
 	assert identify(device).platform == "cisco_ios"
 	assert key in device.sent
+
+
+def test_aoscx_pager_is_left_with_q():
+	"""AOS-CX names its quit key "q" in the same pager line as ProCurve's."""
+	pager = "-- MORE --, next page: Space, next line: Enter, quit: q"
+	device = FakeDevice("6300#", {"show version": ANSWERS["aruba_aoscx"][1] + "\n" + pager}, pager=pager)
+	assert identify(device).platform == "aruba_aoscx"
+	assert "q" in device.sent and "\x03" not in device.sent
+
+
+def test_procurve_any_key_splash_is_answered():
+	"""ProCurve's "Press any key to continue" after login: answered, then
+	the real prompt read."""
+	device = FakeDevice("HP-2920#", {"show version": ANSWERS["hp_procurve"][1]})
+	prompts = iter(["Press any key to continue", "HP-2920#"])
+	device.find_prompt = lambda: next(prompts)
+	found = identify(device)
+	assert (found.platform, found.hostname) == ("hp_procurve", "HP-2920")
+	assert device.sent[0] == "\n"
+
+
+@pytest.mark.parametrize("case, prompt, name", [
+	("cisco_ios", "custom-prompt#", "R1"),
+	("juniper_junos (EX 13.2X51)", "netops@whatever>", "ex1"),
+	("paloalto_panos", "admin@x>", "PA1"),
+])
+def test_the_hostname_comes_from_the_answer_first(case, prompt, name):
+	"""Where the answer says the name (IOS "R1 uptime is", Junos "Hostname:",
+	PAN-OS "hostname:"), it beats the prompt - which can be set to anything."""
+	probe, answer = ANSWERS[case]
+	assert identify(FakeDevice(prompt, {probe: answer})).hostname == name
+
+
+def test_carriage_returns_and_backspaces_are_read_through():
+	"""NX-OS's doubled carriage returns and a pager's backspaces don't hide
+	the line or the name."""
+	answer = "Cisco Nexus Operating System (NX-OS) Software\r\r\nDevice\x08 name: N9K1\r\r\n"
+	found = identify(FakeDevice("N9K1#", {"show version": answer}))
+	assert (found.platform, found.hostname, found.evidence) == (
+		"cisco_nxos", "N9K1", "Cisco Nexus Operating System (NX-OS) Software")
 
 
 def test_detection_stops_at_its_time_limit():
