@@ -212,6 +212,8 @@ The device's logo follows it: in its vendor's colors while the device is reachab
 
 A card marked **IN ROLLOUT** is in a running or queued rollout; its tooltip says whose. See [One rollout per device](#one-rollout-per-device).
 
+A card marked **HOST KEY** showed a different SSH host key than the one NetRollout stored for it (when your administrator turned host key checking on). NetRollout doesn't sign in to it, and a rollout skips it with ACTION NEEDED, until an administrator accepts the new key. See the admin guide, [SSH host keys](admin-guide.md#ssh-host-keys).
+
 ## Importing devices from a CSV
 
 Select **Import CSV** to add many devices at once. The file is the same devices CSV the [CLI](cli.md#the-devices-csv) uses.

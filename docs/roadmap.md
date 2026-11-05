@@ -72,7 +72,7 @@ In no particular order.
 
 **Security**
 
-- **Device host keys**: verify each device's SSH host key (trust on first use, with a page to see, accept and reset them), so a device that changes its key is noticed. Today NetRollout connects without checking it, like most automation built on Netmiko.
+- **Device host keys** (in the next release): verify each device's SSH host key - trust on first use, with a card in Server Management to see, accept (also as an HA pair's other unit) and forget them - so a device whose key changed is refused before its password is sent. Later: a strict mode (no sign-in without an approved key) and known_hosts files for the command line tool.
 - **Content-Security-Policy and asset integrity**: a Content-Security-Policy header and integrity hashes for every script and stylesheet, which pairs with serving the third-party assets from the image (see *Isolated networks*).
 
 **Code**

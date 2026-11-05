@@ -22,6 +22,7 @@ To report a vulnerability, follow [SECURITY.md](../SECURITY.md). Don't open a pu
 - [Monitoring access (Grafana)](#monitoring-access-grafana)
 - [Audit log](#audit-log)
 - [Discovering devices](#discovering-devices)
+- [SSH host keys](#ssh-host-keys)
 - [Logs and redaction](#logs-and-redaction)
 - [Backups](#backups)
 - [Upgrades and supply chain](#upgrades-and-supply-chain)
@@ -222,6 +223,15 @@ Discover devices sweeps addresses and signs in to every device that answers, whi
 - **Credentials**: the admin's own security profile, decrypted when the discovery starts and dropped when it ends; never in its events, the page or the audit row. Findings (addresses, hostnames, platforms) stay in the server's memory for an hour after the end.
 - **Audited**: `inventory.discover` when it ends (by the admin who started it, with who cancelled it), and `inventory.create` for each device added.
 
+## SSH host keys
+
+`src/rollout/host_keys.py` (the check), `src/host_keys.py` (what it checks against), table `host_keys`
+
+- **Off by default** (System Settings -> Rollouts -> Check device host keys): Netmiko's defaults, any key accepted. **Trust on first use**: a device's first key is stored; later connections load the accepted keys into the SSH client (a private known_hosts file per connection, owner-only, deleted after) and Paramiko refuses any other key - or a key of another type - **before authentication**, so a refused device never receives the password.
+- **Every connection is checked**: rollouts, rollbacks, Test sign-in, Detect and Discover. Discover keeps the key a device showed and stores it when the admin adds the device.
+- Keys are stored per address connected to (`ip:port`), several per address for HA pairs; a refused key is kept for an admin to accept (replacing the old key of its type, or as an HA pair's other unit), remove or forget, in Server Management. Every change is audited (`host_key.learned`, `.refused`, `.accepted`, `.removed`, `.reset`).
+- Host keys are public: the table holds no secret. It is in backups.
+
 ## Logs and redaction
 
 Rollout logs are designed to be shareable, for example attached to a bug report. Every log line (the log file, Download Log, the live log in the browser, the CLI's console) and every stored ACTION NEEDED text, verification transcript (each command as sent, the device lines it rests on, the device's reply) and stored reply of a device not judged passes `redact()` (`src/rollout/log.py`): the value after a secret-bearing keyword becomes `<redacted>`. The keywords cover the supported platforms' syntaxes, among them `password`, `secret`, `community`, `pre-shared-key`, `psksecret`, `key-string`, `authentication-key`, `encrypted-password`, `phash` and `password-hash` (and `key`, `auth`, `priv` when followed by an encryption type or a quoted value). The keyword and the encryption type stay, which helps debugging.
@@ -257,7 +267,7 @@ NetRollout is licensed under the AGPL-3.0. Every page's footer shows the running
 | Limitation | Effect | Mitigation |
 |---|---|---|
 | NetRollout's SSH library (Paramiko 4.x) still accepts `ssh-rsa` host keys and the SHA-1 key exchanges ([CVE-2026-44405](https://github.com/advisories/GHSA-r374-rxx8-8654), severity low; Paramiko 5 removed them, and no fixed 4.x exists). It offers them last, only to a device that has nothing newer, and many older devices (IOS 12 and 15, NX-OS 7, older ASA and FortiOS) have nothing newer | With such a device, the SSH session's integrity rests on SHA-1 | Give devices SHA-2 host keys and key exchanges where their software supports them (then NetRollout uses those); keep device management on a trusted network |
-| Device SSH host keys are not verified (Netmiko's defaults: no strict host-key checking, no known-hosts file) | A machine impersonating a device on the path could capture the credentials sent to it | Run NetRollout on a trusted management network |
+| Device SSH host keys are checked only when **Check device host keys** is on (System Settings; off by default), and then on trust on first use: a device's first key is trusted as it is shown | With checking off, a machine impersonating a device on the path could capture the credentials sent to it; with it on, only at a device's first connection | Turn checking on; add devices with Discover devices (their keys stored from the scan you confirmed); run NetRollout on a trusted management network. The command line tool doesn't check host keys |
 | The factory `admin` account's 2FA is off unless it turns it on | By default its password is its only factor | Give it a strong password at first sign-in, turn its 2FA on (My Account), or disable it once personal or directory admin accounts exist; use personal admin accounts day to day |
 | Directory accounts don't use NetRollout's 2FA | Sign-in strength is the directory's | Apply your directory's own policies |
 | Rate limits are per process and in memory | A restart resets the per-address counters (the account lockout's count is kept in the database) | Keep NetRollout off untrusted networks; watch failed sign-ins and lockouts in the audit log |

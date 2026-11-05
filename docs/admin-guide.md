@@ -10,6 +10,7 @@ This guide is for whoever runs a NetRollout installation day to day: starting an
 - [Manager and command line side by side](#manager-and-command-line-side-by-side)
 - [Administration](#administration)
 - [Discovering devices](#discovering-devices)
+- [SSH host keys](#ssh-host-keys)
 - [Upgrading NetRollout](#upgrading-netrollout)
 - [Backups](#backups)
 - [Restoring a backup](#restoring-a-backup)
@@ -288,6 +289,29 @@ Addresses that gave no card are listed under **No card**, by reason: wrong crede
 
 - `inventory.discover`: one row when a discovery ends, by the admin who started it - the addresses as typed, the count, the port, the profile, the counts by outcome, how it ended (finished, or cancelled and by whom: an admin, `restart`, `maintenance`), how many times it was continued, and the confirmation (the address count and source addresses shown).
 - `inventory.create`: one row per device added, with `"source": "discover"`.
+
+## SSH host keys
+
+Every SSH server has a host key, and a device that shows a different key than before may not be the same device. With **Check device host keys** on (System Settings -> Rollouts), NetRollout remembers each device's key and checks it before every sign-in: a device showing a different key is refused **before its password is sent**, and nothing is pushed to it until an admin decides. It is **off by default**: turning it on is safe at any time (keys start being stored from then on), but a device whose key later changes legitimately, such as a replaced router, then waits for you.
+
+### How keys are stored (trust on first use)
+
+- **The first key a device shows is stored**: at its first rollout or saved device's Test sign-in, or when **Discover devices** adds it (the key its discovery saw, so a discovered device is protected from its first rollout on). Detect and the device window's Test sign-in on a device not yet saved check a stored key but store nothing.
+- **Keys belong to the address connected to**, `ip:port` - for a device saved by name, the address the name resolved to. A device removed from Inventory keeps its keys until you forget them, so a device added back at the same address is still checked.
+- **From then on**, every sign-in checks the key: rollouts, rollbacks, Test sign-in, Detect and Discover.
+
+### When a key is refused
+
+The rollout doesn't push to that device: its result is failed with **ACTION NEEDED - its SSH host key changed - not signed in to, nothing was sent**, and the rest of the rollout goes on. Test sign-in and Detect say the same. Discover lists the address under **SSH host key changed** (it doesn't count toward the pause). Inventory marks the device **HOST KEY**. The refused key is kept, and the audit log records `host_key.refused` (once a day per key).
+
+Then, in **Server Management -> SSH Host Keys**, find the address (the refused ones are listed first, with their devices) and check the new key against the device itself, from a session you trust (its console): `show crypto key mypubkey rsa` on IOS, `show ssh key` on NX-OS. NetRollout shows OpenSSH's `SHA256:` fingerprint; many devices print the key itself or another fingerprint format, so compare like with like. Then:
+
+- **Accept**: the device was replaced or reinstalled, and the new key is its. The old key of that type is removed.
+- **Accept as HA unit**: an HA pair answers on this address, and this is the other unit's key. Both keys stay accepted, and NetRollout signs in to whichever unit answers.
+- **Remove**: drop one key (a refused one you don't trust, a unit that left the pair).
+- **Forget all**: drop every key of the address; its next connection stores whatever key it shows.
+
+Each is recorded in the audit log (`host_key.accepted`, `host_key.removed`, `host_key.reset`), as is every key stored (`host_key.learned`). The command line tool (`netrollout-cli`) doesn't check host keys.
 
 ## Upgrading NetRollout
 
@@ -661,6 +685,7 @@ The LDAP explorer's import can do the same for a whole directory move: tick **Re
 | Rollouts | **Rollouts at the same time** | 4 | 1 – 32 | How many rollouts run at the same time; more wait in the queue. | After restart |
 | Rollouts | **Devices at the same time, per rollout** | 10 | 1 – 64 | How many devices one rollout configures at the same time. | Next rollout |
 | Rollouts | **Reuse a device's up/down status for** | 60 s | 10 – 3600 | How long a device's up/down status is reused before it's probed again. | Immediately |
+| Rollouts | **Check device host keys** | Off | Off, Trust on first use | Off: any SSH host key is accepted. Trust on first use: each device's first key is stored and later ones checked against it - a different key is refused before the password is sent. See [SSH host keys](#ssh-host-keys). | Next connection |
 | Rollouts | **Device DNS suffix** | (empty) | a domain, such as `corp.local` | Added to a device saved by a name alone: `core1` is reached as `core1.corp.local`. Full names and IP addresses are used as they are. Device names are looked up in the DNS the NetRollout server uses, so that DNS must know them. | Immediately |
 | Access | **Hostname** | (empty) | a hostname or IPv4 address | The name people use; other names redirect to it. See [Hostname and certificates](#hostname-and-certificates). | Immediately |
 | Access | **HTTPS port** | 443 (or the port chosen at install) | 1 – 65535 | The port people use. See [The HTTPS port](#the-https-port). | Once confirmed on the new port |
