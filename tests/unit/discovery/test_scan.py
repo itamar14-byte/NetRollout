@@ -250,6 +250,21 @@ def test_cancel_while_paused_ends_it():
 	assert not found.proceed()
 
 
+def test_the_scan_stops_when_netrollout_says_so():
+	"""stop_when answering a reason (a restart, a database move) before a
+	sign-in starts cancels the scan by that reason: nothing more is signed
+	in to."""
+	stop = []
+	found = DiscoveryScan(parse_targets("10.0.0.1-6", 4096), 22, Login("u", "p", ""), skip=lambda t: None,
+	                      knock=lambda a, p: BANNER, detect=lambda d: (stop.append("restart"), XE)[1],
+	                      sleep=lambda s: None, stop_when=lambda: stop[0] if stop else None)
+	ended(found)
+	assert (found.phase, found.cancelled_by) == (Phase.CANCELLED, "restart")
+	assert len(found.findings()) <= SIGN_INS
+	counts = found.counts()                     # every open port: a card or "not asked"
+	assert counts["reasons"]["not-asked"] == counts["open"] - len(found.findings())
+
+
 def test_at_most_sign_ins_at_once():
 	"""With every sign-in held, exactly SIGN_INS start; none more until
 	they end; never more than SIGN_INS at once."""

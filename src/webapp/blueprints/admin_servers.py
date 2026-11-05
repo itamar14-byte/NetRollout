@@ -433,8 +433,11 @@ def rollouts() -> Response:
 	devices, state and start - polled by the Restart dialog (also while the
 	server drains: nothing refuses requests then).
 
-	:returns: {rollouts: [...], running, queued, draining}"""
-	return ok(rollouts=_rollouts(), draining=current_app.orchestrator.draining,
+	:returns: {rollouts: [...], running, queued, draining, discovery} -
+	 discovery: the running discovery's summary (it ends with a restart), or None"""
+	found = current_app.discovery.current()
+	running = found.summary() if found and found.scan.ended is None else None
+	return ok(rollouts=_rollouts(), draining=current_app.orchestrator.draining, discovery=running,
 	          **current_app.orchestrator.counts())
 
 

@@ -15,6 +15,7 @@ if TYPE_CHECKING:   # annotations only: these modules import this one's users
 	from src.db.connections import BackendServices
 	from src.jobs import RolloutOrchestrator
 	from src.webapp.db_move import DatabaseMove
+	from src.webapp.discoveries import Discoveries
 	from src.webapp.lifecycle import Maintenance, Shutdown
 	from src.webapp.http import WebServices
 
@@ -27,6 +28,7 @@ class NetRolloutApp(Flask):
 	shutdown: "Shutdown"                  # stop / restart with a drain
 	maintenance: "Maintenance"            # a database move's pause and lock
 	db_move: "DatabaseMove"               # Server Management's database move
+	discovery: "Discoveries"              # Discover devices: the one scan
 	access: "Access"                      # the hostname, the HTTPS port, the certificate
 	session_interface: RedisSessionInterface   # sessions live in Redis
 	sessions: "SessionStore"              # those sessions: who, signing out, the idle limit

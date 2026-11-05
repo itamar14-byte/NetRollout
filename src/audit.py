@@ -68,6 +68,7 @@ class AuditAction(StrEnum):
 	INVENTORY_ATTRIBUTES = "inventory.attributes"
 	INVENTORY_IMPORT_CSV = "inventory.import_csv"
 	INVENTORY_BULK_ASSIGN = "inventory.bulk_assign"
+	INVENTORY_DISCOVER = "inventory.discover"     # a discovery ended (Discover devices)
 	SECURITY_PROFILE_CREATE = "security_profile.create"
 	SECURITY_PROFILE_EDIT = "security_profile.edit"
 	SECURITY_PROFILE_DELETE = "security_profile.delete"

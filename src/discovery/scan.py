@@ -120,6 +120,22 @@ def read_banner(address: str, port: int) -> str | None:
 	return first.decode("utf-8", "replace").splitlines()[0].strip() if first.strip() else ""
 
 
+def sending_from(address: str, port: int) -> str | None:
+	"""The address this server sends from toward `address` - the routing
+	table's choice, read from a UDP socket "connected" to it (no packet is
+	sent). Inside a container that's the container's own address, not the
+	one the network sees.
+
+	:returns: it; None: no route"""
+	family = socket.AF_INET6 if ":" in address else socket.AF_INET
+	try:
+		with socket.socket(family, socket.SOCK_DGRAM) as probe:
+			probe.connect((address, port))
+			return str(probe.getsockname()[0])
+	except OSError:
+		return None
+
+
 class DiscoveryScan:
 	"""One scan: its targets, its threads, its state. Everything the page
 	reads goes through one lock; the events are numbered, so the page asks
@@ -131,6 +147,7 @@ class DiscoveryScan:
 	             detect: Callable[[Device], Detection] = detection.detect,
 	             clock: Callable[[], float] = time.monotonic,
 	             sleep: Callable[[float], None] = time.sleep,
+	             stop_when: Callable[[], str | None] = lambda: None,
 	             on_end: Callable[[DiscoveryScan], None] | None = None) -> None:
 		"""
 		:param skip: endpoint (ip:port) -> why it isn't signed in to, or
@@ -138,12 +155,16 @@ class DiscoveryScan:
 		:param knock: the port check (read_banner; a test's own)
 		:param detect: the sign-in and detection (a test's own)
 		:param clock: sleep: the pacing's (a test's own)
+		:param stop_when: asked before each sign-in starts: why the scan must
+		 stop now (NetRollout stopping, a database move), or None - it is
+		 then cancelled by that
 		:param on_end: called once when the scan has ended, however"""
 		self.targets = targets
 		self.port = port
 		self._login: Login | None = login
 		self._skip, self._knock, self._detect = skip, knock, detect
 		self._clock, self._sleep, self._on_end = clock, sleep, on_end
+		self._stop_when = stop_when
 		self._lock = threading.Lock()
 		self._changed = threading.Condition(self._lock)
 		self._turn = threading.Lock()          # one sign-in waits for its start at a time
@@ -328,6 +349,8 @@ class DiscoveryScan:
 		 cancelled first"""
 		with self._turn:
 			while True:
+				if reason := self._stop_when():
+					self.cancel(reason)
 				with self._lock:
 					while self._phase == Phase.PAUSED:
 						self._changed.wait()
