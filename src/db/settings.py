@@ -47,6 +47,12 @@ class BackupSchedule(StrEnum):
 	WEEKLY = "weekly"
 
 
+class HostKeyMode(StrEnum):
+	"""Whether devices' SSH host keys are checked (host_key_mode)."""
+	OFF = "off"                         # not checked (the default)
+	TRUST_FIRST_USE = "trust_first_use"  # the first key seen is stored, later ones checked against it
+
+
 class Weekday(StrEnum):
 	"""A weekly backup's day (backup_weekday), Monday first as
 	datetime.weekday() counts."""
@@ -247,6 +253,14 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	        "A device's reachability (its dot in Inventory and New Rollout) is "
 	        "probed again once this has passed.",
 	        "Rollouts", 60, minimum=10, maximum=3600, unit="seconds", applies="immediately"),
+	ChoiceSetting("host_key_mode", "Check device host keys",
+	        "Off: any SSH host key is accepted, as most automation tools do. "
+	        "Trust on first use: the first key a device shows is stored (also "
+	        "when Discover adds it), and from then on a different key is "
+	        "refused before the password is sent - the device isn't signed in "
+	        "to until an admin accepts its new key (Server Management -> Host keys).",
+	        "Rollouts", HostKeyMode.OFF, applies="next connection",
+	        choices=((HostKeyMode.OFF, "Off"), (HostKeyMode.TRUST_FIRST_USE, "Trust on first use"))),
 	TextSetting("dns_suffix", "Device DNS suffix",
 	        "Added to a device saved by name alone: core1 is reached as "
 	        "core1.corp.local. Full names and IP addresses are used as they "

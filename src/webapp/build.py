@@ -21,6 +21,7 @@ from src.accounts.users import SESSION_PREFIX, SessionStore, SignInThrottle
 from src.audit import summary as audit_summary
 from src.db.connections import BackendServices, REDIS_UNAVAILABLE, RedisConnection
 from src.encryption import init_encryption, require_key_in_container
+from src.host_keys import HostKeyPolicies
 from src.jobs import JobStore, RolloutOrchestrator, clear_stale_jobs
 from src.rollout.engine import endpoint
 from src.runtime import CODENAME, VERSION, StartupError, in_container, source_url
@@ -277,6 +278,10 @@ def launch_app(backend: BackendServices | None = None) -> NetRolloutApp:
 	app.db_move = DatabaseMove(backend, maintenance, web_services.audit_trail)
 	# Inventory → Discover devices: one scan per server
 	app.discovery = Discoveries(orchestrator, maintenance, web_services.audit_trail)
+	# devices' SSH host keys (System Settings -> Rollouts: Check device host keys)
+	app.host_keys = HostKeyPolicies(lambda: app.backend.postgres,
+	                                lambda: str(app.backend.settings.get("host_key_mode")),
+	                                web_services.audit_trail, lambda: maintenance.writes_blocked)
 
 	configure_app(app, secret_key)
 	# first of the request hooks: while a move copies the data, nothing writes

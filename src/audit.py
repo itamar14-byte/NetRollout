@@ -69,6 +69,12 @@ class AuditAction(StrEnum):
 	INVENTORY_IMPORT_CSV = "inventory.import_csv"
 	INVENTORY_BULK_ASSIGN = "inventory.bulk_assign"
 	INVENTORY_DISCOVER = "inventory.discover"     # a discovery ended (Discover devices)
+	# devices' SSH host keys (src/host_keys.py)
+	HOST_KEY_LEARNED = "host_key.learned"         # a device's first key stored (trust on first use)
+	HOST_KEY_REFUSED = "host_key.refused"         # a device showed another key: not signed in to
+	HOST_KEY_ACCEPTED = "host_key.accepted"       # an admin accepted a refused key
+	HOST_KEY_REMOVED = "host_key.removed"         # an admin removed a key
+	HOST_KEY_RESET = "host_key.reset"             # an admin forgot a target's keys
 	SECURITY_PROFILE_CREATE = "security_profile.create"
 	SECURITY_PROFILE_EDIT = "security_profile.edit"
 	SECURITY_PROFILE_DELETE = "security_profile.delete"

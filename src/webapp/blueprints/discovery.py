@@ -3,6 +3,7 @@ of the admin's own security profiles, detect each platform, and create
 Inventory devices from what was found. The scan is app.discovery's
 (src/webapp/discoveries.py); the page asks for what's new (status?since=N)."""
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 from flask import Blueprint, render_template, request
@@ -10,18 +11,20 @@ from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
 
 from src.access.nginx import server_ips
-from src.audit import AuditAction
+from src.audit import Actor, AuditAction
 from src.discovery.scan import MAP_LIMIT, MAX_ADDRESSES, Login, sending_from
 from src.discovery.targets import TargetError, Targets, parse_targets
 from src.encryption import decrypt
+from src.host_keys import HostKeyPolicies
 from src.inventory import DeviceFields, InventoryView, RuleRefused, SecurityProfiles
 from src.rollout import inputs
 from src.rollout.engine import endpoint
+from src.rollout.host_keys import HostKeyPolicy
 from src.runtime import in_container
 from src.webapp.app import current_app
 from src.webapp.discoveries import Discovery, DiscoveryRefused, Starter, skip_rule
 from src.webapp.hooks import signed_in_user
-from src.webapp.http import err, ok, require_admin, viewer, with_json
+from src.webapp.http import actor, err, ok, require_admin, viewer, with_json
 
 bp = Blueprint("discovery", __name__, url_prefix="/inventory/discover")
 
@@ -132,10 +135,17 @@ def start(data: Any) -> ResponseReturnValue:
 			targets, port, login, starter=Starter(user.id, current_user.username, request.remote_addr),
 			profile_id=profile_id, profile_label=label,
 			sources=tuple(_sources(next(targets.addresses()), port)),
-			skip=skip_rule(known, current_app.orchestrator, current_app.backend.postgres))
+			skip=skip_rule(known, current_app.orchestrator, current_app.backend.postgres),
+			host_keys=_host_keys(current_app.host_keys, actor()))
 	except DiscoveryRefused as e:
 		return err(str(e), e.code)
 	return ok(**_status(found, 0))
+
+
+def _host_keys(policies: HostKeyPolicies, who: Actor) -> Callable[[str], HostKeyPolicy]:
+	""":returns: the scan's host key check per endpoint (its threads have no
+	 request: the service and the actor are taken now)"""
+	return lambda target: policies.policy(target, who, "discovery")
 
 
 @bp.route("/status")
@@ -222,6 +232,8 @@ def _create(found: Discovery, card: Any) -> dict[str, Any]:
 	except Exception:
 		found.scan.release(finding.id)
 		raise
+	if finding.host_key:      # the key its discovery saw: stored with it (trust on first use)
+		current_app.host_keys.store(endpoint(finding.address, finding.port), finding.host_key, actor(), "discovery")
 	current_app.web.audit(AuditAction.INVENTORY_CREATE, object_type="Inventory", object_label=label,
 	                      detail={"source": "discover", "is_global": saved.is_global})
 	return {"finding": finding.id, "created": True, "label": label, "warning": saved.shared_endpoint}

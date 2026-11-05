@@ -24,6 +24,7 @@ const REASONS = {
     'not-supported': 'Not a platform NetRollout supports',
     'in-inventory': 'Already in Inventory',
     'in-rollout': 'In a rollout',
+    'host-key-changed': 'SSH host key changed - not signed in to (Server Management -> Host keys)',
     'not-asked': 'Not asked - the discovery was cancelled',
 };
 

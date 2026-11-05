@@ -21,7 +21,7 @@ from src.rollout.engine import Device, RolloutOptions, missing_value
 from src.rollout.inputs import InputParser, command_lines
 from src.webapp.app import current_app
 from src.webapp.device_holds import busy_message, holds
-from src.webapp.http import Refused, back, ok, err, with_form, with_json, Caller, viewer
+from src.webapp.http import Refused, actor, back, ok, err, with_form, with_json, Caller, viewer
 
 bp = Blueprint('rollout', __name__, url_prefix='/rollout')
 
@@ -344,6 +344,7 @@ def start_rollout() -> tuple[uuid.UUID, list[Device], str | None]:
 		max_workers=current_app.backend.settings.get("device_parallelism")
 	)
 	audit_comment = request.form.get("comment", "").strip() or None
+	current_app.host_keys.apply(devices, addresses, actor(), "rollout")
 	try:
 		job_id = submit_jobs(devices, commands, platform_commands_map,
 		                     is_multi_platform, options, audit_comment, addresses)
@@ -531,6 +532,7 @@ def rollback(job_id: uuid.UUID, data: dict[str, Any]) -> ResponseReturnValue:
 		webapp=True,
 		max_workers=current_app.backend.settings.get("device_parallelism")
 	)
+	current_app.host_keys.apply(devices, addresses, actor(), "rollback")
 	try:
 		new_job_id = current_app.orchestrator.submit(devices, commands, options,
 		                                              current_user.id, addresses=addresses)

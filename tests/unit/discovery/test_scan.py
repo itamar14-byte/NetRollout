@@ -16,6 +16,7 @@ from src.discovery.scan import (FAILURES_BEFORE_PAUSE, SIGN_IN_GAP, SIGN_INS, Di
                                 Reason, Skip, read_banner)
 from src.discovery.targets import parse_targets
 from src.rollout.detect import Detection
+from src.rollout.host_keys import HostKeyPolicy, HostKeyRefused, fingerprint
 
 
 BANNER = "SSH-2.0-Cisco-1.25"
@@ -406,3 +407,37 @@ def test_read_banner_of_a_closed_port_is_none():
 	port = probe.getsockname()[1]
 	probe.close()
 	assert read_banner("127.0.0.1", port) is None
+
+
+def test_a_finding_keeps_the_host_key_it_showed_without_storing_it():
+	"""With host keys checked, the key a device showed rides on its finding
+	(Add stores it) - the policy's own recording isn't called; the page's
+	event shows its fingerprint, not the key."""
+	stored = []
+	key = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGq0iqVb0x6jVg3x0eG7h1bQ2zJmPqvWQ7l5rWZ0aG5v"
+
+	def detect(device):
+		device.host_keys.seen(key)       # what _connect does after connecting
+		return XE
+
+	found = DiscoveryScan(parse_targets("10.0.0.1", 4096), 22, Login("u", "p", ""), skip=lambda t: None,
+	                      knock=lambda a, p: BANNER, detect=detect, sleep=lambda s: None,
+	                      host_keys=lambda target: HostKeyPolicy(learn=True, seen=stored.append))
+	ended(found)
+	(finding,) = found.findings()
+	assert finding.host_key == key
+	assert stored == []
+	(event,) = [e for e in found.status()["events"] if e["kind"] == "finding"]
+	assert event["host_key"] == fingerprint(key)
+
+
+def test_a_changed_host_key_is_a_line_and_never_counts_toward_the_pause():
+	"""A refused host key (nothing was sent): its own reason; even many of
+	them don't pause the scan."""
+	count = FAILURES_BEFORE_PAUSE + 3
+	found, _ = make(f"10.0.0.1-{count}",
+	                {f"10.0.0.{n}": HostKeyRefused(f"10.0.0.{n}:22", "ssh-rsa AAAA") for n in range(1, count + 1)})
+	ended(found)
+	phases = [e["phase"] for e in found.status()["events"] if e["kind"] == "phase"]
+	assert phases == ["done"]
+	assert found.counts()["reasons"]["host-key-changed"] == count

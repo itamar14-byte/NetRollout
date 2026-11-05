@@ -18,7 +18,7 @@ import netmiko
 
 from src.rollout.address import is_ip, resolve
 from src.rollout.evidence import Outcome, judge, parse
-from src.rollout.host_keys import HostKeyCheck, HostKeyRefused, refused_key, shown_key
+from src.rollout.host_keys import REFUSED_REASON, HostKeyCheck, HostKeyRefused, refused_key, shown_key
 from src.rollout.log import Tone, redact
 from src.rollout.platforms import (
 	COMMIT_TIMEOUT, DEFAULTS_MAX_LINES, PLATFORMS, QUIET, CommitPending, ConfigSession, EnableFailed, Platform,
@@ -331,6 +331,9 @@ class NetmikoSession:
 
 		# In case of exception or issue in connecting and executing the commands,
 		# an error message will be printed, and we move to the next device
+		except HostKeyRefused:
+			report.action_needed(device, REFUSED_REASON)
+			return PushResult(applied=False)
 		except netmiko.NetMikoAuthenticationException:
 			report.notify(f"{device.ip} authentication failed", Tone.ERROR)
 			return PushResult(applied=False)

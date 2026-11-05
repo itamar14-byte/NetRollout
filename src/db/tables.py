@@ -432,6 +432,33 @@ class LDAPGroup(Base):
 	server: Mapped["LDAPServer"] = relationship(back_populates="user_groups")
 
 
+class HostKeyState(StrEnum):
+	"""A device's SSH host key (host_keys.state)."""
+	ACCEPTED = "accepted"   # connections check against it
+	REFUSED = "refused"     # a device showed it and was refused: waits for an admin
+
+
+class HostKey(Base):
+	"""An SSH host key seen at a target (ip:port as connected - a hostname's
+	resolved address): accepted, or refused and waiting for an admin.
+	A target may have several accepted keys (an HA pair: either unit
+	answers). Public keys - not secrets."""
+	__tablename__ = 'host_keys'
+	__table_args__ = (UniqueConstraint('target', 'key'),)
+	id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+	target: Mapped[str] = mapped_column(String(300), nullable=False, index=True)
+	key_type: Mapped[str] = mapped_column(String(64), nullable=False)
+	key: Mapped[str] = mapped_column(Text, nullable=False)          # "type base64"
+	fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+	state: Mapped[str] = mapped_column(String(16), nullable=False, default=HostKeyState.ACCEPTED)
+	first_seen: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.now)
+	last_seen: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.now)
+	# who it was first seen by: a username, with how ("dana (rollout)", "dana (discovery)")
+	seen_by: Mapped[str] = mapped_column(String(128), nullable=False)
+	accepted_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+	accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class SystemSetting(Base):
 	"""The runtime value of one system setting - the only runtime source.
 	install() seeds a row for every setting at each start (install value from

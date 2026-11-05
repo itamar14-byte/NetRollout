@@ -16,13 +16,14 @@ from src.db.tables import DeviceCredential, Inventory, SecurityProfile
 from src.encryption import decrypt
 from src.inventory import InventoryView, SecurityProfiles
 from src.rollout import inputs
-from src.rollout.address import is_ip, is_loopback, qualify, resolve
+from src.rollout.address import is_ip, is_loopback, primary, qualify, resolve
 from src.rollout.detect import NEIGHBOUR_NAMES, detect
-from src.rollout.engine import Device
+from src.rollout.engine import Device, endpoint
+from src.rollout.host_keys import HostKeyRefused
 from src.rollout.session import NetmikoSession
 from src.webapp.app import current_app
 from src.webapp.hooks import signed_in_user
-from src.webapp.http import ok, err, own_server, with_json, with_form, flash_redirect, viewer
+from src.webapp.http import actor, ok, err, own_server, with_json, with_form, flash_redirect, viewer
 
 bp = Blueprint('security', __name__, url_prefix='/security')
 
@@ -189,7 +190,7 @@ def security_detect(profile_id: uuid.UUID, data: dict[str, Any]) -> ResponseRetu
 			if not profile:
 				raise SignInError("Profile not found", 404)
 			login = _login(profile)
-		device_obj = _reachable(ip, port, "", ip, login)
+		device_obj = _reachable(ip, port, "", ip, login, "detect", learn=False)
 		with _signing_in(device_obj):
 			found = detect(device_obj)
 	except SignInError as e:
@@ -258,7 +259,8 @@ def _test_target(profile_id: uuid.UUID, data: dict[str, Any]) -> Device:
 		elif not profile:
 			raise SignInError("Profile not found", 404)
 		login = _login(profile)
-	return _reachable(ip, port, device_type, label, login)
+	# a saved device's first key is learned; the window's unsaved one stores nothing
+	return _reachable(ip, port, device_type, label, login, "test sign-in", learn=device_id is not None)
 
 
 def _login(profile: SecurityProfile) -> tuple[str, str, str]:
@@ -267,30 +269,41 @@ def _login(profile: SecurityProfile) -> tuple[str, str, str]:
 	return profile.username, decrypt(profile.password_secret), secret
 
 
-def _reachable(ip: str, port: str, device_type: str, label: str, login: tuple[str, str, str]) -> Device:
+def _reachable(ip: str, port: str, device_type: str, label: str, login: tuple[str, str, str],
+               how: str, learn: bool) -> Device:
 	"""The device to sign in to, once its name resolves (System Settings'
-	DNS suffix added to a bare name) and its port answers.
+	DNS suffix added to a bare name) and its port answers - with its host
+	key check (app.host_keys) for the address it resolved to.
 
+	:param how: what signs in, for the host key records
+	:param learn: its first host key is stored (a saved device)
 	:raises SignInError: 503 - the name doesn't resolve, the port is closed"""
 	suffix = current_app.web.dns_suffix()
 	host = qualify(ip, suffix)
-	if not is_ip(host) and resolve(host) is None:
-		raise SignInError(f"Can't resolve {host} from this server", 503)
+	address = host
+	if not is_ip(host):
+		found = resolve(host)
+		if found is None:
+			raise SignInError(f"Can't resolve {host} from this server", 503)
+		address = primary(found) or host
 	if not inputs.tcp_reachable(host, int(port)):
 		raise SignInError(f"TCP port {port} unreachable on {host}", 503)
 	username, password, secret = login
 	return Device(ip=ip, port=int(port), device_type=device_type, label=label,
-	              username=username, password=password, secret=secret, dns_suffix=suffix)
+	              username=username, password=password, secret=secret, dns_suffix=suffix,
+	              host_keys=current_app.host_keys.policy(endpoint(address, port), actor(), how, learn))
 
 
 @contextmanager
 def _signing_in(device: Device) -> Iterator[None]:
-	"""A sign-in's failure, in words: 401 refused, 504 timed out, else 500
-	with the error's text.
+	"""A sign-in's failure, in words: 409 its host key refused (nothing
+	sent), 401 refused, 504 timed out, else 500 with the error's text.
 
 	:raises SignInError: the sign-in failed"""
 	try:
 		yield
+	except HostKeyRefused as e:
+		raise SignInError(str(e), 409) from None
 	except NetmikoAuthenticationException:
 		raise SignInError("Authentication failed - check username and password", 401) from None
 	except NetmikoTimeoutException:

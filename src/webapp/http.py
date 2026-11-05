@@ -87,6 +87,12 @@ def date_arg(name: str) -> date | None:
 		return None
 
 
+def actor() -> Actor:
+	""":returns: the signed-in user as the audit names them, with the
+	 request's address (for work that records later, outside the request)"""
+	return Actor(current_user.id, current_user.username, request.remote_addr)
+
+
 def viewer() -> Viewer:
 	""":returns: the signed-in user as the data layer's rules see them (built
 	 once per request)"""

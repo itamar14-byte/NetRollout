@@ -18,7 +18,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, wait
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from enum import StrEnum
 from typing import Any
 
@@ -28,6 +28,7 @@ from src.discovery.targets import Targets
 from src.rollout import detect as detection
 from src.rollout.detect import NEIGHBOUR_NAMES, Detection
 from src.rollout.engine import Device, endpoint
+from src.rollout.host_keys import OFF, HostKeyPolicy, HostKeyRefused, fingerprint
 
 MAX_ADDRESSES = 4096        # one discovery's addresses, at most
 MAP_LIMIT = 1024            # the page's address map, up to this many (port events)
@@ -61,6 +62,7 @@ class Reason(StrEnum):
 	NOT_SUPPORTED = "not-supported"  # detected, not a platform NetRollout has: its name
 	IN_INVENTORY = "in-inventory"
 	IN_ROLLOUT = "in-rollout"       # its owner in the detail
+	HOST_KEY_CHANGED = "host-key-changed"   # not its stored SSH host key: not signed in to
 	NOT_ASKED = "not-asked"         # cancelled before its turn
 
 
@@ -91,6 +93,7 @@ class Finding:
 	detected: str | None
 	evidence: str | None
 	problem: str | None
+	host_key: str | None = None   # the SSH host key it showed ("type base64"; None: not checked)
 	created: bool = False    # a device was created from it (claim())
 
 
@@ -148,6 +151,7 @@ class DiscoveryScan:
 	             clock: Callable[[], float] = time.monotonic,
 	             sleep: Callable[[float], None] = time.sleep,
 	             stop_when: Callable[[], str | None] = lambda: None,
+	             host_keys: Callable[[str], HostKeyPolicy] = lambda target: OFF,
 	             on_end: Callable[[DiscoveryScan], None] | None = None) -> None:
 		"""
 		:param skip: endpoint (ip:port) -> why it isn't signed in to, or
@@ -155,6 +159,9 @@ class DiscoveryScan:
 		:param knock: the port check (read_banner; a test's own)
 		:param detect: the sign-in and detection (a test's own)
 		:param clock: sleep: the pacing's (a test's own)
+		:param host_keys: endpoint -> what its host key is checked against
+		 (off: not checked); a key seen is kept on the finding, not stored -
+		 storing it is Add's
 		:param stop_when: asked before each sign-in starts: why the scan must
 		 stop now (NetRollout stopping, a database move), or None - it is
 		 then cancelled by that
@@ -165,6 +172,7 @@ class DiscoveryScan:
 		self._skip, self._knock, self._detect = skip, knock, detect
 		self._clock, self._sleep, self._on_end = clock, sleep, on_end
 		self._stop_when = stop_when
+		self._host_keys = host_keys
 		self._lock = threading.Lock()
 		self._changed = threading.Condition(self._lock)
 		self._turn = threading.Lock()          # one sign-in waits for its start at a time
@@ -328,10 +336,16 @@ class DiscoveryScan:
 			self._add_line(Line(address, Reason.NOT_ASKED))
 			return
 		generation, login = started
+		shown: list[str] = []
 		try:
+			policy = self._host_keys(endpoint(address, self.port))
+			if policy.checks:      # the key seen kept for Add, not stored now
+				policy = replace(policy, seen=shown.append)
 			found = self._detect(Device(ip=address, label=address, username=login.username,
 			                            password=login.password, device_type="", secret=login.secret,
-			                            port=self.port))
+			                            port=self.port, host_keys=policy))
+		except HostKeyRefused:      # nothing was sent: never a failed sign-in
+			self._add_line(Line(address, Reason.HOST_KEY_CHANGED), ended=True)
 		except netmiko.exceptions.NetmikoAuthenticationException:
 			self._failed(address, generation)
 		except netmiko.exceptions.NetmikoTimeoutException:
@@ -339,7 +353,7 @@ class DiscoveryScan:
 		except Exception as e:
 			self._add_line(Line(address, Reason.FAILED, _detail(e)), ended=True)
 		else:
-			self._detected(address, banner, found)
+			self._detected(address, banner, found, shown[0] if shown else None)
 
 	def _wait_turn(self) -> tuple[int, Login] | None:
 		"""Wait for this sign-in's start: not while paused, at most SIGN_INS
@@ -376,7 +390,7 @@ class DiscoveryScan:
 				if self._failures >= FAILURES_BEFORE_PAUSE and self._phase == Phase.RUNNING:
 					self._set_phase(Phase.PAUSED)
 
-	def _detected(self, address: str, banner: str, found: Detection) -> None:
+	def _detected(self, address: str, banner: str, found: Detection, host_key: str | None) -> None:
 		"""Signed in: a card, or a line when it's a neighbour NetRollout
 		doesn't support."""
 		if found.platform is None and found.detected is not None:
@@ -387,9 +401,11 @@ class DiscoveryScan:
 			self._signing_in -= 1
 			self._signed_in += 1
 			finding = Finding(len(self._findings) + 1, address, self.port, banner, found.hostname,
-			                  found.platform, found.detected, found.evidence, found.problem)
+			                  found.platform, found.detected, found.evidence, found.problem, host_key)
 			self._findings[finding.id] = finding
-			self._event("finding", **asdict(finding))
+			shown = asdict(finding)
+			shown["host_key"] = fingerprint(host_key) if host_key else None   # the page shows its fingerprint
+			self._event("finding", **shown)
 
 	def _add_line(self, line: Line, *, ended: bool = False, signed_in: bool = False) -> None:
 		""":param ended: a sign-in that had started ended with it

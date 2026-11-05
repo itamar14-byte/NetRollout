@@ -18,6 +18,7 @@ from src.discovery.scan import KEEP_FOR, DiscoveryScan, Login, Phase, Reason, Sk
 from src.discovery.targets import Targets
 from src.jobs import with_owners
 from src.rollout import detect as detection
+from src.rollout.host_keys import OFF, HostKeyPolicy
 from src.webapp.lifecycle import Maintenance
 
 if TYPE_CHECKING:   # annotations only
@@ -112,8 +113,11 @@ class Discoveries:
 
 	def start(self, targets: Targets, port: int, login: Login, *, starter: Starter,
 	          profile_id: uuid.UUID, profile_label: str, sources: tuple[str, ...],
-	          skip: Callable[[str], Skip | None]) -> Discovery:
+	          skip: Callable[[str], Skip | None],
+	          host_keys: Callable[[str], HostKeyPolicy] = lambda target: OFF) -> Discovery:
 		"""Start a discovery; the last one's findings are dropped.
+
+		:param host_keys: endpoint -> what its host key is checked against
 
 		:raises DiscoveryRefused: 503 NetRollout is stopping or moving its
 		 database, 409 another discovery is running"""
@@ -126,7 +130,7 @@ class Discoveries:
 					f"{running.starter.username}'s discovery is running (started "
 					f"{running.scan.started:%H:%M}) - wait for it to end, or cancel it.", 409)
 			scan = DiscoveryScan(targets, port, login, skip=skip, knock=self.knock, detect=self.detect,
-			                     stop_when=self._stop_when, on_end=self._ended)
+			                     stop_when=self._stop_when, on_end=self._ended, host_keys=host_keys)
 			self._current = Discovery(scan, starter, profile_id, profile_label, sources)
 			scan.start()
 			return self._current

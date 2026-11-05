@@ -44,13 +44,16 @@ class HostKeyPolicy:
 OFF = HostKeyPolicy()
 
 
+REFUSED_REASON = ("its SSH host key changed - not signed in to, nothing was sent. If the device was "
+                  "replaced, an admin accepts its new key in Server Management -> Host keys.")
+
+
 class HostKeyRefused(Exception):
 	"""The device showed a host key that isn't an accepted one: nothing was
 	sent to it (the check comes before authentication)."""
 
 	def __init__(self, endpoint: str, offered: str) -> None:
-		super().__init__(f"{endpoint}: its SSH host key changed - not signed in to. If the device was "
-		                 f"replaced, an admin accepts its new key in Server Management -> Host keys.")
+		super().__init__(f"{endpoint}: {REFUSED_REASON}")
 		self.endpoint = endpoint
 		self.offered = offered
 

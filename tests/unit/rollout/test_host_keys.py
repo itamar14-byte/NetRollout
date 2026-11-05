@@ -147,7 +147,9 @@ def test_a_changed_key_is_refused_before_the_password_is_sent(server):
 	assert server.passwords == []
 	assert refused == [key_line(RSA_B)]
 	assert error.value.offered == key_line(RSA_B)
-	assert str(error.value).startswith(f"127.0.0.1:{server.port}: its SSH host key changed - not signed in to.")
+	assert str(error.value) == (f"127.0.0.1:{server.port}: its SSH host key changed - not signed in to, nothing "
+	                            f"was sent. If the device was replaced, an admin accepts its new key in Server "
+	                            f"Management -> Host keys.")
 
 
 def test_a_key_of_another_type_is_refused_too(server):
