@@ -395,3 +395,14 @@ def test_the_restart_dialog_names_a_running_discovery(app, client_for, admin, ma
 	devices.gate.set()
 	ended(app)
 	assert client_for(admin).get("/admin/server/rollouts").json["discovery"] is None
+
+
+# ── Inventory ────────────────────────────────────────────────────────────────
+
+def test_inventory_offers_discover_to_admins_only(client_for, admin, make_user, devices):
+	"""Inventory's Discover devices button and its banner's script: an
+	admin's page has them, an operator's doesn't."""
+	page = client_for(admin).get("/inventory").get_data(as_text=True)
+	assert 'href="/inventory/discover"' in page and 'id="discBanner"' in page and "js/discover-banner.js" in page
+	page = client_for(make_user()).get("/inventory").get_data(as_text=True)
+	assert "/inventory/discover" not in page and "discBanner" not in page

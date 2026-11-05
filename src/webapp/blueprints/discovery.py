@@ -11,7 +11,7 @@ from flask_login import current_user, login_required
 
 from src.access.nginx import server_ips
 from src.audit import AuditAction
-from src.discovery.scan import MAX_ADDRESSES, Login, sending_from
+from src.discovery.scan import MAP_LIMIT, MAX_ADDRESSES, Login, sending_from
 from src.discovery.targets import TargetError, Targets, parse_targets
 from src.encryption import decrypt
 from src.inventory import DeviceFields, InventoryView, RuleRefused, SecurityProfiles
@@ -61,6 +61,7 @@ def _status(found: Discovery | None, since: int) -> dict[str, Any]:
 		return {"discovery": None}
 	status = found.scan.status(since)
 	return {"discovery": {**found.summary(), "seq": status["seq"], "events": status["events"],
+	                      "created": [f.id for f in found.scan.findings() if f.created],
 	                      "mine": found.starter.user_id == viewer().id}}
 
 
@@ -68,14 +69,16 @@ def _status(found: Discovery | None, since: int) -> dict[str, Any]:
 @login_required
 @require_admin
 def discover() -> str:
-	"""The page: the admin's profiles to sign in with, and the running or
-	last discovery, if any."""
+	"""The page: the admin's profiles to sign in with, the labels Inventory
+	has already (a card's label warning), and the running or last
+	discovery, if any."""
 	with current_app.backend.postgres.get_session() as db_session:
 		profiles = [{"id": str(p.id), "label": p.label or p.username, "username": p.username}
 		            for p in signed_in_user(db_session).security_profiles]
-	return render_template("discover.html", profiles=profiles,
+		labels = sorted({d.label for d in InventoryView(db_session, viewer()).visible()})
+	return render_template("discover.html", profiles=profiles, labels=labels,
 	                       discovery=_status(current_app.discovery.current(), 0)["discovery"],
-	                       max_addresses=MAX_ADDRESSES, active_section="inventory")
+	                       max_addresses=MAX_ADDRESSES, map_limit=MAP_LIMIT, active_section="inventory")
 
 
 @bp.route("/check", methods=["POST"])

@@ -1,7 +1,196 @@
 {% extends "operator_base.html" %}
 {% block title %}Discover devices - NetRollout{% endblock %}
 {% block page_title %}Discover devices{% endblock %}
-{# The page itself is built in step 4 of docs/plans/platform-detect-and-discover.md #}
+
+{% from "_platforms.html" import platforms %}
+
+{% block page_css %}<link rel="stylesheet" href="{{ asset('css/discover.css') }}">{% endblock %}
+
+{#- Discover devices (admins): what to scan, the warning confirmed, the
+    progress, a card per device found (or a table above 20), the addresses
+    that gave none, and Add. Built by js/discover.js from the discovery's
+    events (GET status?since=N); the setup form is the page's own. -#}
 {% block operator_content %}
-<p>Discover devices</p>
+
+<div class="d-flex justify-content-between align-items-start flex-wrap gap-3 mb-4">
+    <div>
+        <div class="nr-badge">INVENTORY</div>
+        <h2 class="h4 mb-0 disc-title">Discover devices</h2>
+        <p class="mt-1 mb-0 nr-note">Find the devices on a network: their SSH port is checked, they are signed in to
+            with one of your security profiles, and their platform and hostname are read. Nothing is changed on them.</p>
+    </div>
+    <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('inventory.inventory') }}"><i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Back to Inventory</a>
+</div>
+
+<!-- What to scan -->
+<section class="nr-card disc-setup" id="discSetup" aria-labelledby="discSetupTitle">
+    <div class="nr-card-body">
+        <h3 class="nr-section-title" id="discSetupTitle">What to scan</h3>
+        {% if not profiles %}
+        <p class="nr-warning-note mb-0" id="discNoProfile">
+            Discover signs in with one of your security profiles, and you have none yet.
+            <a href="{{ url_for('security.security') }}">Create a security profile</a> first.
+        </p>
+        {% endif %}
+        <form id="discForm" class="disc-form" novalidate data-nr-submit="discStart">
+            <div class="disc-field disc-field-wide">
+                <label class="nr-label" for="discAddresses">Addresses</label>
+                <input class="form-control nr-mono" id="discAddresses" autocomplete="off" spellcheck="false"
+                       placeholder="10.0.0.0/24, 10.0.1.10-50, 10.0.2.7" aria-describedby="discAddressesHelp discAddressesCheck"
+                       data-nr-input="discAddressesTyped">
+                <div class="nr-help" id="discAddressesHelp">Subnets of any size, ranges (10.0.0.10-50) and single
+                    addresses, IPv4 or IPv6, separated by commas - at most {{ "{:,}".format(max_addresses) }} addresses.</div>
+                <div class="disc-check" id="discAddressesCheck" aria-live="polite"></div>
+            </div>
+            <div class="disc-field disc-field-port">
+                <label class="nr-label" for="discPort">SSH port</label>
+                <input class="form-control nr-mono" id="discPort" inputmode="numeric" value="22" autocomplete="off"
+                       data-nr-input="discAddressesTyped">
+            </div>
+            <div class="disc-field">
+                <label class="nr-label" for="discProfile">Sign in with</label>
+                <select class="form-select" id="discProfile" data-nr-change="discAddressesTyped" {% if not profiles %}disabled{% endif %}>
+                    {% for p in profiles %}
+                    <option value="{{ p.id }}">{{ p.label }}{% if p.label != p.username %} ({{ p.username }}){% endif %}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="disc-field disc-field-go">
+                <button type="submit" class="btn btn-primary btn-sm" id="discStartBtn" disabled>
+                    <i class="bi bi-radar me-1" aria-hidden="true"></i>Discover
+                </button>
+            </div>
+        </form>
+    </div>
+</section>
+
+<!-- The discovery: progress, the pause, cancel -->
+<section class="nr-card disc-progress" id="discProgress" aria-labelledby="discProgressTitle" hidden>
+    <div class="nr-card-body">
+        <div class="disc-progress-head">
+            <h3 class="nr-section-title mb-0" id="discProgressTitle">Discovery</h3>
+            <span class="disc-phase" id="discPhase"></span>
+            <span class="disc-what nr-mono" id="discWhat"></span>
+            <button type="button" class="btn btn-outline-secondary btn-sm ms-auto" id="discCancelBtn"
+                    data-nr-click="discCancel" hidden>Cancel discovery</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm ms-auto" id="discAgainBtn"
+                    data-nr-click="discAgain" hidden>New discovery</button>
+        </div>
+        <div class="disc-paused" id="discPaused" role="alert" hidden>
+            <i class="bi bi-pause-circle" aria-hidden="true"></i>
+            <div>
+                <strong>Paused after <span id="discPausedCount">3</span> failed sign-ins.</strong>
+                <span>The profile may be wrong for these devices. More failed sign-ins can lock the account on
+                    your AAA server. Check the profile, then continue - or cancel.</span>
+            </div>
+            <div class="disc-paused-actions">
+                <button type="button" class="btn btn-info btn-sm" id="discContinueBtn" data-nr-click="discContinue">Continue</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm" data-nr-click="discCancel">Cancel discovery</button>
+            </div>
+        </div>
+        <dl class="disc-counters" id="discCounters">
+            <div><dt>Addresses</dt><dd id="cAddresses">0</dd></div>
+            <div><dt>Checked</dt><dd id="cChecked">0</dd></div>
+            <div><dt>SSH open</dt><dd id="cOpen">0</dd></div>
+            <div><dt>Signing in</dt><dd id="cSigning">0</dd></div>
+            <div><dt>Found</dt><dd id="cFound" class="nr-accent">0</dd></div>
+            <div><dt>No card</dt><dd id="cLines">0</dd></div>
+        </dl>
+        <div class="disc-bar" role="progressbar" aria-label="Addresses checked" aria-valuemin="0" aria-valuemax="100"
+             aria-valuenow="0" id="discBar"><span id="discBarFill"></span></div>
+        <div class="disc-map-wrap" id="discMapWrap" hidden>
+            <div class="disc-map" id="discMap" aria-hidden="true"></div>
+            <ul class="disc-legend" aria-hidden="true">
+                <li><i class="m-idle"></i>Not checked</li><li><i class="m-closed"></i>No SSH</li>
+                <li><i class="m-open"></i>SSH open</li><li><i class="m-found"></i>Found</li><li><i class="m-line"></i>No card</li>
+            </ul>
+        </div>
+        <p class="nr-note mb-0" id="discNotMine" hidden></p>
+    </div>
+</section>
+
+<!-- What was found -->
+<section class="disc-found" id="discFound" aria-labelledby="discFoundTitle" hidden>
+    <div class="disc-found-head">
+        <h3 class="nr-section-title mb-0" id="discFoundTitle">Devices found</h3>
+        <div class="disc-bulk" id="discBulk" hidden>
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-nr-click="discSelectNeeding">Select those needing a platform</button>
+            <label class="visually-hidden" for="discBulkPlatform">Platform for the selected devices</label>
+            <select class="form-select form-select-sm" id="discBulkPlatform">
+                <option value="">Set platform…</option>
+                {% for val, lbl in platforms %}<option value="{{ val }}">{{ lbl }}</option>{% endfor %}
+            </select>
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-nr-click="discSetPlatform">Set</button>
+            <button type="button" class="btn btn-outline-secondary btn-sm" data-nr-click="discLeaveOutSelected">Leave out</button>
+        </div>
+    </div>
+    <div class="disc-cards" id="discCards"></div>
+    <div class="table-responsive disc-table-wrap" id="discTableWrap" hidden>
+        <table class="table table-sm disc-table">
+            <thead><tr>
+                <th scope="col"><span class="visually-hidden">Select</span></th>
+                <th scope="col">Address</th><th scope="col">Label</th><th scope="col">Platform</th>
+                <th scope="col">Global</th><th scope="col">State</th><th scope="col"><span class="visually-hidden">Leave out</span></th>
+            </tr></thead>
+            <tbody id="discRows"></tbody>
+        </table>
+    </div>
+</section>
+
+<!-- The addresses that gave no card, by reason -->
+<section class="disc-lines" id="discLines" aria-labelledby="discLinesTitle" hidden>
+    <h3 class="nr-section-title" id="discLinesTitle">No card</h3>
+    <div id="discLineGroups"></div>
+</section>
+
+<div class="disc-announce visually-hidden" id="discAnnounce" aria-live="polite"></div>
+
+<!-- Add -->
+<div class="disc-actionbar" id="discActionbar" hidden>
+    <span id="discReadyText" aria-live="polite"></span>
+    <button type="button" class="btn btn-primary btn-sm" id="discAddBtn" data-nr-click="discAdd" disabled>Add devices</button>
+</div>
+<div class="alert disc-added" id="discAdded" role="status" hidden></div>
+
+<!-- The warning confirmed before every discovery -->
+<div class="modal fade" id="discConfirmModal" tabindex="-1" role="alertdialog" aria-labelledby="discConfirmTitle"
+     aria-describedby="discConfirmWhat discConfirmRisk">
+    <div class="modal-dialog modal-dialog-centered disc-confirm-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div>
+                    <div class="nr-badge nr-badge-danger">BEFORE YOU START</div>
+                    <h2 class="modal-title h5" id="discConfirmTitle">Start this discovery?</h2>
+                </div>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="disc-confirm-what" id="discConfirmWhat"></p>
+                <div class="disc-confirm-risk" id="discConfirmRisk">
+                    <p><i class="bi bi-shield-exclamation" aria-hidden="true"></i>
+                        <strong>Security tools commonly flag this.</strong> The EDR on this server, or a network IDS,
+                        can treat the connections as a port scan and isolate the server. Repeated sign-ins can
+                        lock the account on your AAA server.</p>
+                    <p class="mb-0">Before you start, ask your security team for an exception for this server
+                        (EDR, IDS/IPS, NAC) and for this account.</p>
+                </div>
+                <p class="disc-confirm-big nr-warning-note" id="discConfirmBig" hidden></p>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary btn-sm" id="discConfirmCancel" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-danger btn-sm" id="discConfirmGo" data-nr-click="discConfirmed">Start discovery</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_script %}
+<script type="application/json" id="nr-vendor-logos">{{ VENDOR_LOGOS | tojson }}</script>
+<script type="application/json" id="nr-platform-labels">{{ dict(platforms) | tojson }}</script>
+<script type="application/json" id="nr-inventory-labels">{{ labels | tojson }}</script>
+<script type="application/json" id="nr-discovery">{{ discovery | tojson }}</script>
+<script src="{{ asset('js/discover.js') }}" data-max-addresses="{{ max_addresses }}" data-map-limit="{{ map_limit }}"
+        data-inventory-url="{{ url_for('inventory.inventory') }}"></script>
 {% endblock %}

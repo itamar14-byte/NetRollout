@@ -414,3 +414,12 @@
 .detect-btn { padding: 0.1rem 0.6rem; font-size: 0.75rem; }
 .detect-btn[aria-disabled="true"] { opacity: 0.45; cursor: not-allowed; }
 .detect-status { margin-top: 0.5rem; }
+
+/* Inventory's banner while a discovery runs or its findings wait (js/discover-banner.js) */
+.disc-banner {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.9rem; margin-bottom: 1rem;
+    border: 1px solid rgba(0,188,212,0.35); background: rgba(0,188,212,0.05); border-radius: 8px;
+    padding: 0.55rem 0.85rem; font-size: 0.82rem; color: var(--nr-text);
+}
+.disc-banner.is-paused { border-color: rgba(255,204,128,0.45); background: rgba(255,204,128,0.06); }
+.disc-banner a { margin-left: auto; }

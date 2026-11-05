@@ -2,20 +2,7 @@
 {% block title %}Inventory - NetRollout{% endblock %}
 {% block page_title %}Inventory{% endblock %}
 
-{% set platforms = [
-    ('cisco_ios',      'Cisco IOS'),
-    ('cisco_xe',       'Cisco IOS-XE'),
-    ('cisco_xr',       'Cisco IOS-XR'),
-    ('cisco_nxos',     'Cisco NX-OS'),
-    ('juniper_junos',  'Juniper JunOS'),
-    ('arista_eos',     'Arista EOS'),
-    ('fortinet',       'Fortinet FortiOS'),
-    ('paloalto_panos', 'Palo Alto PAN-OS'),
-    ('aruba_aoscx',    'Aruba AOS-CX'),
-    ('checkpoint_gaia','Check Point Gaia'),
-    ('hp_procurve',    'HP ProCurve'),
-    ('hp_comware',     'HP Comware'),
-] %}
+{% from "_platforms.html" import platforms %}
 
 {% block page_css %}<link rel="stylesheet" href="{{ asset('css/inventory.css') }}">{% endblock %}
 
@@ -128,11 +115,21 @@
         <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#importCsvModal">
             <i class="bi bi-filetype-csv me-1"></i>Import CSV
         </button>
+        {% if is_admin %}
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('discovery.discover') }}">
+            <i class="bi bi-radar me-1" aria-hidden="true"></i>Discover devices
+        </a>
+        {% endif %}
         <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addDeviceModal">
             <i class="bi bi-plus-lg me-1"></i>Add Device
         </button>
     </div>
 </div>
+
+{% if is_admin %}
+{#- a discovery running, or its findings waiting: js/discover-banner.js -#}
+<div class="disc-banner" id="discBanner" role="status" hidden></div>
+{% endif %}
 
 
 {% if only_needing %}
@@ -168,6 +165,11 @@
         <button class="btn btn-outline-secondary btn-sm" data-bs-toggle="modal" data-bs-target="#importCsvModal">
             <i class="bi bi-filetype-csv me-1"></i>Import CSV
         </button>
+        {% if is_admin %}
+        <a class="btn btn-outline-secondary btn-sm" href="{{ url_for('discovery.discover') }}">
+            <i class="bi bi-radar me-1" aria-hidden="true"></i>Discover devices
+        </a>
+        {% endif %}
         <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#addDeviceModal">
             <i class="bi bi-plus-lg me-1"></i>Add your first device
         </button>
@@ -951,4 +953,5 @@
 <script type="application/json" id="nr-list-props">{{ (sys_props + user_props) | selectattr('is_list') | map(attribute='name') | list | tojson }}</script>
 <script type="application/json" id="nr-platform-labels">{{ dict(platforms) | tojson }}</script>
 <script src="{{ asset('js/inventory.js') }}"></script>
+{% if is_admin %}<script src="{{ asset('js/discover-banner.js') }}" data-url="{{ url_for('discovery.discover') }}"></script>{% endif %}
 {% endblock %}

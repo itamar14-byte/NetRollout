@@ -17,12 +17,19 @@ async function nrRestartRollouts(background) {
     } catch (e) { return null; }
 }
 
+// a discovery running ends with the restart: said in the dialog ("" for none)
+function nrRestartDiscovery(d) {
+    const found = d && d.discovery;
+    return found ? `${found.by}'s discovery of ${found.entries.join(', ')} is running - it ends with the restart.` : '';
+}
+
 async function nrRestartClick() {
     const d = await nrRestartRollouts(false);
     // unknown: the server answers 409 if rollouts run
     if (!d || !(d.running + d.queued)) {
+        const discovery = nrRestartDiscovery(d);
         if (await nrConfirm({title: 'Restart NetRollout?', danger: true, confirmLabel: 'Restart',
-                             message: 'Everyone will be signed out and sign in again.'}))
+                             message: (discovery ? discovery + ' ' : '') + 'Everyone will be signed out and sign in again.'}))
             nrFireRestart();
         return;
     }
@@ -35,8 +42,10 @@ function nrShowRestartList(d) {
     const parts = [];
     if (running) parts.push(`${plural(running, 'rollout')} running`);
     if (queued) parts.push(`${plural(queued, 'rollout')} queued`);
+    const discovery = nrRestartDiscovery(d);
     document.getElementById('restartJobWarning').textContent =
-        parts.length ? parts.join(', ') + '.' : (_restartWaiting ? 'No rollout left.' : 'No rollout running now.');
+        (parts.length ? parts.join(', ') + '.' : (_restartWaiting ? 'No rollout left.' : 'No rollout running now.')) +
+        (discovery ? ' ' + discovery : '');
     nrRolloutsTable(document.getElementById('restartRollouts'), d ? d.rollouts : []);
 }
 
