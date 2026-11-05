@@ -348,6 +348,35 @@
   </div>
 </div>
 
+<!-- ── SSH HOST KEYS CARD (js/host-keys.js) ──────────────────────── -->
+<div class="nr-card mb-4" id="hostKeysCard">
+  <div class="nr-card-accent"></div>
+  <div class="nr-card-body">
+    <div class="d-flex align-items-center mb-2">
+      <i class="bi bi-key nr-accent-icon" aria-hidden="true"></i>
+      <h3 class="hk-title">SSH Host Keys</h3>
+    </div>
+    <div class="cert-help">
+      The SSH host key each device showed. With checking on (System Settings &rarr; Rollouts &rarr; Check device
+      host keys), a device showing a different key is refused before its password is sent, and nothing is pushed
+      to it until you accept the new key here. Accept a new key after a device was replaced; accept it as an
+      <strong>HA pair's other unit</strong> to keep both keys.
+    </div>
+    <p class="hk-off nr-warning-note" id="hkOff" hidden>
+      Checking is off: devices aren't checked and no new keys are stored.
+      <a href="{{ url_for('admin_settings.settings_page') }}">Turn it on in System Settings</a>.
+    </p>
+    <div class="hk-tools">
+      <label class="visually-hidden" for="hkSearch">Search host keys by address or device</label>
+      <input type="search" class="form-control form-control-sm" id="hkSearch" placeholder="Address or device"
+             autocomplete="off" spellcheck="false" data-nr-input="hkFilter">
+      <span class="hk-count" id="hkCount" aria-live="polite"></span>
+    </div>
+    <div id="hkList" class="hk-list"></div>
+    <div id="hkResult" class="cert-result" aria-live="polite"></div>
+  </div>
+</div>
+
 <!-- ── LDAP CARD ──────────────────────────────────────────────── -->
 <div class="nr-card mb-4">
   <div class="nr-card-accent"></div>
@@ -534,5 +563,6 @@
 <script type="application/json" id="nr-access">{{ access | tojson }}</script>
 <script type="application/json" id="nr-trusted-cas">{{ trusted_cas | tojson }}</script>
 <script type="application/json" id="nr-db-move">{{ db_move | tojson }}</script>
+<script src="{{ asset('js/host-keys.js') }}"></script>
 <script src="{{ asset('js/server-management.js') }}" data-redis-test="{{ url_for('admin_servers.admin_server_redis_test') }}" data-redis-save="{{ url_for('admin_servers.admin_server_redis_save') }}" data-redis-back="{{ url_for('admin_servers.admin_server_redis_back') }}"></script>
 {% endblock %}

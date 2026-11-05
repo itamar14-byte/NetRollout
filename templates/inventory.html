@@ -75,6 +75,11 @@
                   title="You have no security profile on this device: link one to roll out to it">ACTION NEEDED</span>
             {% endif %}
 
+            {% if device.id|string in key_refused %}
+            <span class="key-refused-badge"
+                  title="Its SSH host key changed: NetRollout doesn't sign in to it until an admin accepts the new key (Server Management - SSH Host Keys)">HOST KEY</span>
+            {% endif %}
+
             {% set hold = held.get(device.id|string) %}
             {% if hold %}
             <span class="in-rollout-badge" title="{{ hold.text }}">IN ROLLOUT</span>

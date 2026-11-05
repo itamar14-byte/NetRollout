@@ -6,7 +6,6 @@ audited, and every path that signs in getting its check - a rollout, a
 rollback, Test sign-in, Detect and Discover - with a refused key answered
 as such. The check itself, against a real SSH server, is
 tests/unit/rollout/test_host_keys.py."""
-import threading
 import uuid
 from unittest.mock import patch
 
@@ -14,7 +13,7 @@ import paramiko
 import pytest
 
 from src.audit import Actor
-from src.db.tables import AuditLog, HostKey, SystemSetting
+from src.db.tables import AuditLog, HostKey, Inventory, SystemSetting
 from src.discovery import scan as scan_module
 from src.host_keys import HostKeyError, HostKeys
 from src.rollout.detect import Detection
@@ -262,3 +261,75 @@ def test_discover_keeps_each_key_and_add_stores_it(app, client_for, make_user, m
 		{"finding": finding.id, "label": "sw1", "device_type": "cisco_xe"}]})
 	assert resp.json["results"][0]["created"] is True
 	assert rows(session_scope) == [("10.20.0.1:22", KEY_A, "accepted", "dana (discovery)")]
+
+
+# ── Server Management's card, Inventory's badge ──────────────────────────────
+
+def key_id(session_scope, key):
+	with session_scope() as s:
+		return s.query(HostKey).filter_by(key=key).one().id
+
+
+def test_the_card_lists_targets_refused_first_with_their_devices(app, client_for, make_user, make_device,
+                                                                  session_scope, checking):
+	admin = make_user(role="admin")
+	make_device(admin, ip="10.0.0.2", label="core-sw2")
+	store(session_scope, "10.0.0.1:22", KEY_A)
+	store(session_scope, "10.0.0.2:22", KEY_A)
+	store(session_scope, "10.0.0.2:22", KEY_B, state="refused")
+	state = client_for(admin).get("/admin/server/host-keys").json
+	assert state["on"] is True
+	assert [(t["target"], t["devices"], [k["state"] for k in t["keys"]]) for t in state["targets"]] == [
+		("10.0.0.2:22", ["core-sw2"], ["refused", "accepted"]), ("10.0.0.1:22", [], ["accepted"])]
+	assert state["targets"][0]["keys"][0]["fingerprint"] == fingerprint(KEY_B)
+
+
+def test_an_admin_accepts_removes_and_resets_audited(client_for, make_user, session_scope):
+	admin = make_user(role="admin")
+	client = client_for(admin)
+	store(session_scope, "10.0.0.1:22", KEY_A)
+	store(session_scope, "10.0.0.1:22", KEY_B, state="refused")
+	resp = client.post(f"/admin/server/host-keys/{key_id(session_scope, KEY_B)}/accept", json={})
+	assert resp.status_code == 200
+	assert [(k, st) for _, k, st, _ in rows(session_scope)] == [(KEY_B, "accepted")]   # replaced
+	assert client.post(f"/admin/server/host-keys/{key_id(session_scope, KEY_B)}/accept", json={}).status_code == 409
+	store(session_scope, "10.0.0.1:22", KEY_C, state="refused")
+	assert client.post(f"/admin/server/host-keys/{key_id(session_scope, KEY_C)}/remove").status_code == 200
+	assert client.post("/admin/server/host-keys/reset", json={"target": "10.0.0.1:22"}).status_code == 200
+	assert rows(session_scope) == []
+	assert client.post("/admin/server/host-keys/reset", json={"target": "10.0.0.1:22"}).status_code == 404
+	assert [a[1] for a in audits(session_scope, "host_key.accepted")] == ["10.0.0.1:22"]
+	assert audits(session_scope, "host_key.accepted")[0][2] == {"fingerprint": fingerprint(KEY_B), "kept_others": False}
+	assert [a[2] for a in audits(session_scope, "host_key.removed")] == [
+		{"fingerprint": fingerprint(KEY_C), "state": "refused"}]
+	assert [a[2] for a in audits(session_scope, "host_key.reset")] == [{"removed": 1}]
+
+
+def test_accepting_as_an_ha_unit_keeps_both(client_for, make_user, session_scope):
+	admin = make_user(role="admin")
+	store(session_scope, "10.0.0.1:22", KEY_A)
+	store(session_scope, "10.0.0.1:22", KEY_B, state="refused")
+	client_for(admin).post(f"/admin/server/host-keys/{key_id(session_scope, KEY_B)}/accept",
+	                       json={"keep_others": True})
+	assert sorted(st for _, _, st, _ in rows(session_scope)) == ["accepted", "accepted"]
+
+
+@pytest.mark.parametrize("method, path", [
+	("get", "/admin/server/host-keys"), ("post", f"/admin/server/host-keys/{uuid.uuid4()}/accept"),
+	("post", f"/admin/server/host-keys/{uuid.uuid4()}/remove"), ("post", "/admin/server/host-keys/reset"),
+])
+def test_operators_are_refused(client_for, make_user, method, path):
+	resp = getattr(client_for(make_user(), xhr=True), method)(path, json={"target": "x"})
+	assert resp.status_code == 403
+
+
+def test_inventory_marks_a_device_whose_key_was_refused(client_for, operator, make_device, session_scope):
+	"""HOST KEY on the device at a target with a refused key, by its address
+	or its hostname's resolved one; not on the others."""
+	with session_scope() as s:
+		s.query(Inventory).filter_by(id=operator.device).update({"ip": "core1", "resolved_ip": "10.0.0.1"})
+	other = make_device(operator.user, ip="10.0.0.5", label="other")
+	store(session_scope, "10.0.0.1:22", KEY_B, state="refused")
+	page = client_for(operator.user).get("/inventory").get_data(as_text=True)
+	assert page.count('class="key-refused-badge"') == 1
+	assert str(other) in page

@@ -2,6 +2,7 @@
 (a live switch and back), LDAP servers and their groups, the TLS
 certificate, and Restart. Admins only; every change audited."""
 import os
+import uuid
 from typing import Any
 
 import redis as redis_lib
@@ -16,12 +17,16 @@ from src.access.nginx import Verdict
 from src.audit import AuditAction
 from src.db import move
 from src.db.connections import PostgresConfig, REDIS_UNAVAILABLE, RedisConfig, schema_problem, ServiceMode
+from src.db.tables import HostKeyState
+from src.host_keys import HostKeyError, HostKeys
+from src.inventory import InventoryView
 from src.jobs import with_owners
+from src.rollout.engine import endpoint
 from src.runtime import drain_seconds
 from src.webapp import db_move
 from src.webapp.app import current_app
 from src.webapp.db_move import RolloutsRunning, same_database, switch_redis
-from src.webapp.http import ok, err, require_admin, with_json
+from src.webapp.http import ok, err, require_admin, viewer, with_json
 from src.webapp.lifecycle import during_maintenance
 
 
@@ -463,3 +468,90 @@ def admin_restart() -> ResponseReturnValue:
 	                      object_label="webapp",
 	                      detail={"mode": mode or "idle", **counts})
 	return ok(**counts)
+
+
+# ── SSH host keys (src/host_keys.py) ─────────────────────────────────────────
+
+def _host_keys() -> dict[str, Any]:
+	"""The Host keys card's state: whether checking is on, and every target
+	with its keys - a refused one waiting first - and the devices there
+	(by their address, or the address a hostname resolved to)."""
+	with current_app.backend.postgres.get_session() as db_session:
+		stored = HostKeys(db_session).listing()
+		labels: dict[str, list[str]] = {}
+		for device in InventoryView(db_session, viewer()).visible():
+			for address in {device.ip, device.resolved_ip} - {None}:
+				labels.setdefault(endpoint(str(address), device.port), []).append(device.label)
+		targets: dict[str, dict[str, Any]] = {}
+		for row in stored:
+			entry = targets.setdefault(row.target, {"target": row.target,
+			                                        "devices": sorted(set(labels.get(row.target, []))),
+			                                        "keys": []})
+			entry["keys"].append({
+				"id": str(row.id), "key_type": row.key_type, "fingerprint": row.fingerprint, "state": row.state,
+				"first_seen": row.first_seen.isoformat(timespec="seconds"),
+				"last_seen": row.last_seen.isoformat(timespec="seconds"), "seen_by": row.seen_by,
+				"accepted_by": row.accepted_by,
+				"accepted_at": row.accepted_at.isoformat(timespec="seconds") if row.accepted_at else None})
+	listed = sorted(targets.values(), key=lambda t: (all(k["state"] == HostKeyState.ACCEPTED for k in t["keys"]),
+	                                                t["target"]))
+	return {"on": current_app.host_keys.on, "targets": listed}
+
+
+@bp.route("/host-keys")
+@login_required
+@require_admin
+def host_keys() -> ResponseReturnValue:
+	""":returns: the Host keys card's state (_host_keys)"""
+	return ok(**_host_keys())
+
+
+@bp.route("/host-keys/<uuid:key_id>/accept", methods=["POST"])
+@login_required
+@require_admin
+def host_key_accept(key_id: uuid.UUID) -> ResponseReturnValue:
+	"""Accept a refused key: a replaced device's (the target's other
+	accepted key of its type removed), or an HA pair's other unit (JSON
+	keep_others: true)."""
+	keep_others = (request.get_json(silent=True) or {}).get("keep_others") is True
+	try:
+		with current_app.backend.postgres.get_session() as db_session:
+			row = HostKeys(db_session).accept(key_id, current_user.username, keep_others)
+			target, fingerprint = row.target, row.fingerprint
+	except HostKeyError as e:
+		return err(str(e), 409)
+	current_app.web.audit(AuditAction.HOST_KEY_ACCEPTED, object_type="HostKey", object_label=target,
+	                      detail={"fingerprint": fingerprint, "kept_others": keep_others})
+	return ok("Accepted - the device is signed in to with this key from now on.", **_host_keys())
+
+
+@bp.route("/host-keys/<uuid:key_id>/remove", methods=["POST"])
+@login_required
+@require_admin
+def host_key_remove(key_id: uuid.UUID) -> ResponseReturnValue:
+	"""Forget one key (an HA unit gone, a refused key not wanted)."""
+	try:
+		with current_app.backend.postgres.get_session() as db_session:
+			row = HostKeys(db_session).remove(key_id)
+			target, fingerprint, state = row.target, row.fingerprint, row.state
+	except HostKeyError as e:
+		return err(str(e), 409)
+	current_app.web.audit(AuditAction.HOST_KEY_REMOVED, object_type="HostKey", object_label=target,
+	                      detail={"fingerprint": fingerprint, "state": state})
+	return ok("Removed.", **_host_keys())
+
+
+@bp.route("/host-keys/reset", methods=["POST"])
+@login_required
+@require_admin
+@with_json("target")
+def host_keys_reset(data: Any) -> ResponseReturnValue:
+	"""Forget every key of a target (JSON target): its next connection learns."""
+	target = str(data["target"])
+	with current_app.backend.postgres.get_session() as db_session:
+		removed = HostKeys(db_session).reset(target)
+	if not removed:
+		return err("No keys are stored for it - reload the page.", 404)
+	current_app.web.audit(AuditAction.HOST_KEY_RESET, object_type="HostKey", object_label=target,
+	                      detail={"removed": removed})
+	return ok("Forgotten - its next connection stores the key it shows.", **_host_keys())

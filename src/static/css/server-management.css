@@ -160,3 +160,28 @@
   @media (max-width: 720px) { .cert-files { grid-template-columns:1fr; } }
   /* Phones: a service's status and mode go under its name */
   @media (max-width: 575.98px) { .db-service-btn > .d-flex { flex-wrap: wrap; } }
+
+  /* SSH host keys (js/host-keys.js) */
+  .hk-title { font-family:'Inter',sans-serif; font-weight:600; color:#e0e0e0; font-size:0.97rem; margin:0 0 0 0.5rem; }
+  .hk-off { margin:0.8rem 0 0; }
+  .hk-tools { display:flex; flex-wrap:wrap; align-items:center; gap:0.6rem; margin:1rem 0 0.6rem; }
+  .hk-tools input { max-width:18rem; }
+  .hk-count { font-size:0.75rem; color:var(--nr-text-muted); }
+  .hk-list { display:flex; flex-direction:column; gap:0.6rem; }
+  .hk-target { border:1px solid #262626; border-radius:8px; padding:0.6rem 0.8rem; background:#151515; }
+  .hk-target.is-refused { border-color:rgba(255,183,77,0.45); }
+  .hk-target-head { display:flex; flex-wrap:wrap; align-items:center; gap:0.4rem 0.8rem; margin-bottom:0.4rem; }
+  .hk-target-name { font-family:'JetBrains Mono',monospace; font-size:0.82rem; color:#e0e0e0; }
+  .hk-devices { font-size:0.75rem; color:var(--nr-text-muted); }
+  .hk-target-head .btn { margin-left:auto; }
+  .hk-key { display:flex; flex-wrap:wrap; align-items:center; gap:0.3rem 0.8rem; padding:0.35rem 0; border-top:1px solid #222;
+            font-size:0.76rem; color:var(--nr-text-secondary); }
+  .hk-key:first-of-type { border-top:0; }
+  .hk-fp { font-family:'JetBrains Mono',monospace; font-size:0.74rem; color:#cfd8dc; overflow-wrap:anywhere; min-width:0; }
+  .hk-state { font-family:'JetBrains Mono',monospace; font-size:0.64rem; letter-spacing:0.05em; text-transform:uppercase;
+              padding:0.1rem 0.4rem; border-radius:4px; border:1px solid #333; }
+  .hk-state.is-accepted { color:#a5d6a7; border-color:rgba(165,214,167,0.45); }
+  .hk-state.is-refused { color:#ffcc80; border-color:rgba(255,183,77,0.45); }
+  .hk-meta { color:var(--nr-text-muted); }
+  .hk-actions { display:flex; flex-wrap:wrap; gap:0.35rem; margin-left:auto; }
+  .hk-empty { font-size:0.8rem; color:var(--nr-text-muted); margin:0; }

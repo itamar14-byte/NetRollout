@@ -9,8 +9,11 @@ from typing import Any
 from flask import Blueprint, render_template, request, redirect, flash, url_for
 from flask.typing import ResponseReturnValue
 from flask_login import current_user, login_required
+from sqlalchemy.orm import Session
 
 from src.audit import AuditAction
+from src.db.tables import Inventory
+from src.host_keys import HostKeys
 from src.inventory import (DeviceFields, InventoryView, RuleRefused, SecurityProfiles,
                            form_values, import_csv, partition_devices)
 from src.rollout import inputs
@@ -66,6 +69,16 @@ def look_up(address: str) -> tuple[tuple[str, ...], str | None]:
 	return tuple(found), None
 
 
+def key_refused(db_session: Session, devices: list[Inventory]) -> set[str]:
+	""":returns: the ids of the devices whose SSH host key was refused and
+	 waits for an admin (by their address, or the one a hostname resolved to)"""
+	targets: dict[str, list[str]] = {}
+	for device in devices:
+		for address in {device.ip, device.resolved_ip} - {None}:
+			targets.setdefault(endpoint(str(address), device.port), []).append(str(device.id))
+	return {device_id for target in HostKeys(db_session).refused_targets(targets) for device_id in targets[target]}
+
+
 def device_not_found() -> ResponseReturnValue:
 	return flash_redirect("Device not found.", "inventory.inventory", "danger")
 
@@ -86,6 +99,7 @@ def inventory() -> str:
 		user = signed_in_user(db_session)
 		profiles = user.security_profiles
 		var_mappings = user.variable_mappings
+		refused = key_refused(db_session, devices)
 		db_session.expunge_all()
 	needs_profile = [d for d in devices if my_profiles[d.id] is None]
 	only_needing = request.args.get("needs_profile") == "1"
@@ -103,6 +117,7 @@ def inventory() -> str:
 	                       user_props=user_props,
 	                       attributes=values,
 	                       held=holds(devices),    # devices in a rollout now: by whom
+	                       key_refused=refused,     # devices whose SSH host key was refused
 	                       dns_suffix=current_app.web.dns_suffix(),
 	                       active_section="inventory")
 
