@@ -18,6 +18,7 @@ import netmiko
 
 from src.rollout.address import is_ip, resolve
 from src.rollout.evidence import Outcome, judge, parse
+from src.rollout.host_keys import HostKeyCheck, HostKeyRefused, refused_key, shown_key
 from src.rollout.log import Tone, redact
 from src.rollout.platforms import (
 	COMMIT_TIMEOUT, DEFAULTS_MAX_LINES, PLATFORMS, QUIET, CommitPending, ConfigSession, EnableFailed, Platform,
@@ -146,17 +147,44 @@ def _connect_args(device: Device) -> dict[str, str | int]:
 
 
 def _connect(device: Device, **extra: Any) -> Any:
-	"""Netmiko's ConnectHandler - once more when its session setup timed out
-	waiting for a prompt: a message the device printed (syslog, a broadcast)
-	redraws the prompt in the middle of the setup's reads.
+	"""Netmiko's ConnectHandler with the device's host key check
+	(device.host_keys; off: nothing added) - once more when its session
+	setup timed out waiting for a prompt (a message the device printed, a
+	syslog or a broadcast, redraws the prompt in the middle of the setup's
+	reads), and once more with the other accepted key when an HA pair's
+	other unit answered. A key learned is handed over and pins the device's
+	later connections to it.
 
 	:param extra: more of ConnectHandler's arguments, or one replaced
+	:raises HostKeyRefused: the device's key isn't an accepted one - checked
+	 before its password was sent
 	:raises: Netmiko's exceptions when it can't connect"""
-	args = {**_connect_args(device), **extra}
-	try:
-		return netmiko.ConnectHandler(**args)
-	except netmiko.exceptions.ReadTimeout:
-		return netmiko.ConnectHandler(**args)
+	policy = device.host_keys
+	with HostKeyCheck(policy, device.host, device.port) as check:
+		while True:
+			args = {**_connect_args(device), **extra, **check.args}
+			try:
+				try:
+					conn = netmiko.ConnectHandler(**args)
+				except netmiko.exceptions.ReadTimeout:
+					conn = netmiko.ConnectHandler(**args)
+			except Exception as e:
+				offered = refused_key(e)
+				if offered is None:
+					raise
+				if check.alternative(offered):
+					continue
+				if policy.refused:
+					policy.refused(offered)
+				raise HostKeyRefused(device.endpoint, offered) from e
+			break
+	if policy.checks:
+		shown = shown_key(conn)
+		if policy.seen:
+			policy.seen(shown)
+		if policy.learn:
+			device.host_keys = policy.pinned(shown)
+	return conn
 
 
 def connect_unknown(device: Device) -> Any:

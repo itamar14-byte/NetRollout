@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict
 from src import encryption
 from src.rollout.address import is_ip, qualify
 from src.rollout.evidence import Judgment, Outcome, Verdict
+from src.rollout.host_keys import OFF, HostKeyPolicy
 from src.rollout.log import Tone, redact
 from src.rollout.session import NetmikoSession, Notifier, PushResult, RunReport
 if TYPE_CHECKING:   # type hints only: the CLI (.exe) must not load the DB stack
@@ -254,6 +255,9 @@ class Device:
 	# added to a bare name when connecting (System Settings; the CLI: none -
 	# the computer's own search domains apply)
 	dns_suffix: str = ""
+	# what its SSH host key is checked against (the web app's, src/host_keys.py;
+	# off: not checked - the CLI); a key learned pins it for the rest of the run
+	host_keys: HostKeyPolicy = field(default=OFF, repr=False)
 
 	@property
 	def host(self) -> str:
