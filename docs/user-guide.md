@@ -196,6 +196,8 @@ Above the devices, three filters narrow the list as you type: **Name** and **Add
 
 Check the result before saving: the platform decides how NetRollout saves and verifies on the device. Detect takes a few seconds, at most about 45. The sign-in shows in the device's log and on your AAA server like any other. Detect isn't offered on a global device you can't edit.
 
+Administrators can also find many devices at once: **Discover devices**, beside Import CSV, scans addresses for SSH, signs in to each device that answers and detects its platform and hostname, then lets them review the results and add the devices they pick. See the admin guide, [Discovering devices](admin-guide.md#discovering-devices).
+
 Administrators also see a **Global device** switch, which shares the device with all users. Switching it off on a global device makes it yours and hides it from everyone else. Their security profile, attribute values and variable mappings on it are deleted, and switching it on again doesn't bring them back. The window warns you, and Save becomes a red **Confirm**.
 
 To change a device, select its card. The **Edit Device** window also has the device's **VARIABLE MAPPINGS** and **VARIABLE ATTRIBUTES** (see [Properties and variable mappings](#properties-and-variable-mappings)). To delete it, use **Remove device** and confirm.

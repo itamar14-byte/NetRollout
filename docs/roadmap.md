@@ -54,7 +54,8 @@ In no particular order.
 **Inventory**
 
 - **Detect the platform** (in the next release): a **Detect** button in Add Device and Edit Device signs in to the device and fills its platform in from the product name it prints, which you confirm before saving - a wrong platform would mean the wrong save and verify commands, so it never guesses.
-- **Discover devices**: give a subnet and a security profile, and NetRollout finds the devices in it: a quick check of which addresses answer on SSH, then a sign-in to each to detect its platform and read its name. You get a list to review, and add the ones you pick to the inventory; nothing is added by itself. The CSV import gets the same detection for rows without a `device_type`. Signing in across a subnet is something device logs and security tools notice, and a profile wrong for some devices counts failed logins against it there, so a discovery is admin-only, limited in size and speed, and recorded in the audit log.
+- **Discover devices** (in the next release): give subnets, ranges or addresses and a security profile, and NetRollout finds the devices there: a quick check of which addresses answer on SSH, then a sign-in to each to detect its platform and read its name. You get a list to review, and add the ones you pick to the inventory; nothing is added by itself. Signing in across a network is something device logs and security tools notice, and a profile wrong for some devices counts failed logins against it there, so a discovery is admin-only, confirmed first, limited in size and speed, pauses after failed sign-ins, and is recorded in the audit log.
+- **Detect in the CSV import**: rows without a `device_type` get the same detection, with Discover's limits.
 
 **Monitoring**
 

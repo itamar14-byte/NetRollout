@@ -21,6 +21,7 @@ To report a vulnerability, follow [SECURITY.md](../SECURITY.md). Don't open a pu
 - [Web application protections](#web-application-protections)
 - [Monitoring access (Grafana)](#monitoring-access-grafana)
 - [Audit log](#audit-log)
+- [Discovering devices](#discovering-devices)
 - [Logs and redaction](#logs-and-redaction)
 - [Backups](#backups)
 - [Upgrades and supply chain](#upgrades-and-supply-chain)
@@ -203,10 +204,23 @@ The optional monitoring profile adds Grafana, served by nginx at `/grafana/` to 
 
 `src/audit.py`, table `audit_log`
 
-- **What is recorded**: sign-in (success and failure, with the reason), sign-out, password changes, registration, session expiry, account lockouts (`auth.account_locked`, `auth.account_lock_timed`), the factory admin turning its 2FA on or off, `netrollout reset-admin`; every user-management action (create, approve, enable, disable, promote, demote, delete, reset password, terminate session, bulk actions); LDAP configuration changes and imports; inventory, security profile, mapping and property changes; rollout start, cancel and rollback; System Settings changes (one row per change); server restart, Redis switch, certificate upload and generation, trusted CA certificates added and removed; backups (created, downloaded, deleted, failed, restored); database preparation and moves (started, done, failed, cancelled).
+- **What is recorded**: sign-in (success and failure, with the reason), sign-out, password changes, registration, session expiry, account lockouts (`auth.account_locked`, `auth.account_lock_timed`), the factory admin turning its 2FA on or off, `netrollout reset-admin`; every user-management action (create, approve, enable, disable, promote, demote, delete, reset password, terminate session, bulk actions); LDAP configuration changes and imports; inventory, security profile, mapping and property changes; device discoveries; rollout start, cancel and rollback; System Settings changes (one row per change); server restart, Redis switch, certificate upload and generation, trusted CA certificates added and removed; backups (created, downloaded, deleted, failed, restored); database preparation and moves (started, done, failed, cancelled).
 - **Each row** has the time, the actor (user id and username, copied so the row survives the user's deletion; "the server itself" for scheduled work), the action, the object (type, id and label), success or failure, the client's IP address, and machine-readable detail (for example the reason a sign-in failed). Passwords and keys are never written to it.
 - **Integrity**: `AuditTrail` is the only code that writes rows, and only the nightly retention job deletes them (after the *Audit log* period, default 90 days, minimum 7). The table is in the app's own database, owned by the app's login; it is not tamper-proof against someone with database or host access. Forward it to your SIEM if you need that (Grafana's Audit & Security dashboard reads it; the PostgreSQL login `grafana_reader` can serve as a read-only source).
 - While maintenance mode blocks writes (during a database move), audit rows are printed to the app's log instead.
+
+## Discovering devices
+
+`src/discovery/`, `src/webapp/discoveries.py`
+
+Discover devices sweeps addresses and signs in to every device that answers, which is what an attacker's reconnaissance looks like. It is built to be used openly and gently:
+
+- **Admins only**, one discovery per server, at most 4,096 addresses; loopback, multicast, reserved and link-local addresses are refused by the server, whatever the page sends.
+- **Confirmed every time**: before it starts, the admin is told the address count, the port, the server's address the connections come from and the account that signs in, and that EDR, IDS/IPS and NAC can flag the sweep and the AAA server can lock the account. Ask your security team for an exception for the server and the account first. The audit row records that this was confirmed, with what was shown.
+- **Gentle**: one connection attempt per address; at most 4 sign-ins at once, half a second apart; one sign-in per address (a failed login isn't retried); a pause after 3 failed sign-ins until an admin continues. Devices the admin sees in Inventory already, and devices in a rollout, are never signed in to.
+- **Read-only on the devices**: the same detection as Detect - one to five read-only commands, never a configuration command, a disclaimer never accepted.
+- **Credentials**: the admin's own security profile, decrypted when the discovery starts and dropped when it ends; never in its events, the page or the audit row. Findings (addresses, hostnames, platforms) stay in the server's memory for an hour after the end.
+- **Audited**: `inventory.discover` when it ends (by the admin who started it, with who cancelled it), and `inventory.create` for each device added.
 
 ## Logs and redaction
 

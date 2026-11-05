@@ -9,6 +9,7 @@ This guide is for whoever runs a NetRollout installation day to day: starting an
 - [The command line](#the-command-line)
 - [Manager and command line side by side](#manager-and-command-line-side-by-side)
 - [Administration](#administration)
+- [Discovering devices](#discovering-devices)
 - [Upgrading NetRollout](#upgrading-netrollout)
 - [Backups](#backups)
 - [Restoring a backup](#restoring-a-backup)
@@ -251,6 +252,42 @@ Administrators move between the two views with the switch at the top right of ev
 | System | **System Settings** | Cards: **Retention** (with the last nightly clean-up), **Rollouts**, **Access** (hostname, HTTPS port, nginx's last answer and the certificate's check, the read-only internal app port), **Sessions**, **Backups** (the schedule and the list of backups). | Change any setting (**Save changes** / **Discard**, or **reset to default** per setting), **Test access**, **Back up now**, download or delete a backup. See [System Settings reference](#system-settings-reference) and [Backups](#backups). |
 
 Below the groups, **Restart server** restarts NetRollout. See [Restart, stop and maintenance](#restart-stop-and-maintenance). When a changed setting needs a restart, the sidebar says **Restart required** and names it.
+
+## Discovering devices
+
+Inventory's **Discover devices** (admins only) finds the devices on a network for you: NetRollout checks which addresses answer on SSH, signs in to each with one of your security profiles, and reads its platform and hostname - the same detection as **Detect** in Add Device. You review what it found and add the devices you pick; nothing is added by itself, and nothing is changed on the devices.
+
+**Before you start, talk to your security team.** A discovery opens TCP connections to every address you give it, then signs in to each one that answers. The EDR on NetRollout's server, or a network IDS, can treat that as a port scan and isolate the server - a TCP sweep alone is enough, as with vulnerability scanners. Repeated sign-ins with a profile that's wrong for some devices count as failed logins on your AAA server (TACACS+, RADIUS, Active Directory) and can lock the account. Ask for an exception for NetRollout's server (EDR, IDS/IPS, NAC) and for the profile's account first. NetRollout asks you to confirm this before every discovery.
+
+### Starting a discovery
+
+1. In **Inventory**, select **Discover devices**.
+2. **Addresses**: subnets of any size (`10.0.0.0/24`, `2001:db8::/120`), ranges (`10.0.1.10-10.0.1.50`, or `10.0.1.10-50` for IPv4) and single addresses, IPv4 or IPv6, separated by commas, spaces or semicolons. Overlapping entries count once. A subnet's network and broadcast addresses are left out (not on a /31 or /32). As you type, the field says how many addresses that is, or what's wrong. One discovery takes at most **4,096** addresses; loopback, multicast, reserved and IPv6 link-local addresses are refused.
+3. **SSH port** (22 by default) and **Sign in with**: one of your own security profiles.
+4. Select **Discover**. The confirmation says exactly what will happen: how many addresses, the port, the address the connections come from (in Docker, the host's addresses recorded at install), and the account that signs in. Select **Start discovery**, or **Cancel**.
+
+Only one discovery runs on a server at a time. Starting one is refused while NetRollout is stopping or restarting, or moving its database.
+
+### While it runs
+
+- **Port checks** run 64 at a time; every address with SSH open is then **signed in to, at most 4 at once and half a second apart**, lowest address first. A device you can see in Inventory already (by its address, or the address its hostname resolved to) and a device in a running rollout are never signed in to.
+- The page shows counters (addresses, checked, SSH open, signing in, found, no card), a progress bar and, for up to 1,024 addresses, a map of every address.
+- **The pause**: after **3 failed sign-ins** (wrong credentials) since the start or the last **Continue**, no new sign-in starts. Check the profile, then **Continue** - or **Cancel discovery**.
+- **Cancel discovery**: the sign-ins under way finish; the rest are listed as not asked. Any admin can see a running discovery and continue or cancel it.
+- You can leave the page: the discovery runs on, and Inventory shows a banner with its progress and a link back. A restart, or a database move starting, ends it. Its findings are kept for an hour after it ends.
+
+### Adding what it found
+
+Each device found gets a card: its logo, hostname, address, the line it was recognised by, and fields for **Label** (its hostname to start with), **Platform** and **Global**. A device NetRollout signed in to but didn't recognise gets a card without a platform: choose it. Above 20 devices the cards become a table, with **Select those needing a platform**, **Set** (a platform for the selected ones) and **Leave out**.
+
+A card is ready once it has a label and a platform. A label that Inventory or another card already has is a warning, not a refusal - Inventory doesn't require unique labels. **Add N devices** creates the ready ones through Inventory's own rules, each with the discovery's profile linked, private unless you ticked **Global**. A card that can't be added says why; the others are added anyway. Only the admin who started a discovery adds devices from it (they're linked to that admin's profile).
+
+Addresses that gave no card are listed under **No card**, by reason: wrong credentials, timed out, failed (with the error), not a platform NetRollout supports (named: Cisco ASA, Cisco Firepower Threat Defense, Cisco ACI, Huawei VRP, a Linux shell), already in Inventory, in a rollout, not asked.
+
+### In the audit log
+
+- `inventory.discover`: one row when a discovery ends, by the admin who started it - the addresses as typed, the count, the port, the profile, the counts by outcome, how it ended (finished, or cancelled and by whom: an admin, `restart`, `maintenance`), how many times it was continued, and the confirmation (the address count and source addresses shown).
+- `inventory.create`: one row per device added, with `"source": "discover"`.
 
 ## Upgrading NetRollout
 
