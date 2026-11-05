@@ -18,16 +18,16 @@ _PREFIX = re.compile(r"\d{1,3}")
 _LAST_OCTET = re.compile(r"\d{1,3}")
 HUGE = 10 ** 15     # above this a count is said as a power of two
 
-# blocks a discovery never touches: (network, what it is)
+# blocks a discovery never touches: (network, what it holds)
 _REFUSED: tuple[tuple[ipaddress.IPv4Network | ipaddress.IPv6Network, str], ...] = (
-	(ipaddress.ip_network("0.0.0.0/8"), "not a device address (0.0.0.0/8)"),
-	(ipaddress.ip_network("127.0.0.0/8"), "NetRollout's own server (loopback)"),
-	(ipaddress.ip_network("224.0.0.0/4"), "multicast, not a device"),
-	(ipaddress.ip_network("240.0.0.0/4"), "reserved, not a device (240.0.0.0/4)"),
-	(ipaddress.ip_network("::1/128"), "NetRollout's own server (loopback)"),
-	(ipaddress.ip_network("::/128"), "not a device address (::)"),
-	(ipaddress.ip_network("fe80::/10"), "link-local: it needs an interface - use the device's global address"),
-	(ipaddress.ip_network("ff00::/8"), "multicast, not a device"),
+	(ipaddress.ip_network("0.0.0.0/8"), "no device addresses"),
+	(ipaddress.ip_network("127.0.0.0/8"), "loopback - NetRollout's own server"),
+	(ipaddress.ip_network("224.0.0.0/4"), "multicast, not devices"),
+	(ipaddress.ip_network("240.0.0.0/4"), "reserved, not devices"),
+	(ipaddress.ip_network("::/128"), "no device address"),
+	(ipaddress.ip_network("::1/128"), "loopback - NetRollout's own server"),
+	(ipaddress.ip_network("fe80::/10"), "link-local - scan the devices' global addresses"),
+	(ipaddress.ip_network("ff00::/8"), "multicast, not devices"),
 )
 
 
@@ -139,8 +139,8 @@ def _entry(entry: str, notes: list[str]) -> Span:
 	for network, what in _REFUSED:
 		if network.version == span.version and span.first <= int(network.broadcast_address) \
 				and int(network.network_address) <= span.last:
-			verb = "is" if span.size == 1 else "includes"
-			raise TargetError(f'"{entry}" {verb} {what}')
+			where = "is in" if span.size == 1 else "reaches into"
+			raise TargetError(f'"{entry}" {where} {network}: {what}')
 	return span
 
 
