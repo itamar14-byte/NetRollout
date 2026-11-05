@@ -258,7 +258,7 @@ SETTINGS: dict[str, Setting] = {s.key: s for s in [
 	        "Trust on first use: the first key a device shows is stored (also "
 	        "when Discover adds it), and from then on a different key is "
 	        "refused before the password is sent - the device isn't signed in "
-	        "to until an admin accepts its new key (Server Management -> Host keys).",
+	        "to until an admin accepts its new key (Server Management -> SSH Host Keys).",
 	        "Rollouts", HostKeyMode.OFF, applies="next connection",
 	        choices=((HostKeyMode.OFF, "Off"), (HostKeyMode.TRUST_FIRST_USE, "Trust on first use"))),
 	TextSetting("dns_suffix", "Device DNS suffix",

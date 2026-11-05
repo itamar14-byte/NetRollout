@@ -45,8 +45,13 @@ class HostKeys:
 		"""Store a target's first key (trust on first use). Two connections
 		learning the same key at once store it once.
 
-		:returns: whether it was stored now (False: there already)"""
+		:returns: whether it was stored now (False: there already) - a key
+		 refused earlier (the old key since removed) is accepted now"""
 		now = datetime.datetime.now()
+		if self.session.query(HostKey).filter_by(target=target, key=key, state=HostKeyState.REFUSED).update(
+				{HostKey.state: HostKeyState.ACCEPTED, HostKey.last_seen: now,
+				 HostKey.seen_by: seen_by[:128]}):
+			return True
 		stored = self.session.execute(insert(HostKey).values(
 			id=uuid.uuid4(), target=target, key_type=key.split()[0], key=key, fingerprint=fingerprint(key),
 			state=HostKeyState.ACCEPTED, first_seen=now, last_seen=now, seen_by=seen_by[:128],

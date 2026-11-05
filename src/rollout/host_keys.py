@@ -45,7 +45,9 @@ OFF = HostKeyPolicy()
 
 
 REFUSED_REASON = ("its SSH host key changed - not signed in to, nothing was sent. If the device was "
-                  "replaced, an admin accepts its new key in Server Management -> Host keys.")
+                  "replaced, an admin accepts its new key in Server Management -> SSH Host Keys.")
+UNSETTLED_REASON = ("its HA units answered in turn and each accepted key was tried - not signed in to, "
+                    "nothing was sent. Try again.")
 
 
 class HostKeyRefused(Exception):
@@ -107,11 +109,13 @@ class HostKeyCheck:
 		self._name = known_hosts_name(host, port)
 		self._path: str | None = None
 		self._loaded: dict[str, str] = {}     # key type -> the key in the file
+		self._tried: set[str] = set()         # the keys loaded so far (the HA retry tries each once)
 
 	def __enter__(self) -> HostKeyCheck:
 		if self._policy.known:
 			for line in self._policy.known:
 				self._loaded.setdefault(line.split()[0], line)
+			self._tried.update(self._loaded.values())
 			handle, self._path = tempfile.mkstemp(prefix="netrollout-known-hosts-")
 			os.close(handle)      # mkstemp: owner-only; closed so Netmiko can open it (Windows)
 			self._write()
@@ -136,10 +140,12 @@ class HostKeyCheck:
 		"""The device offered another accepted key of a type already loaded
 		(an HA pair: the other unit answers): load that one instead.
 
-		:returns: whether to connect again"""
+		:returns: whether to connect again - once per accepted key: units
+		 answering in turn (a round-robin address) can't keep it retrying"""
 		key_type = offered.split()[0]
-		if offered not in self._policy.known or self._loaded.get(key_type) == offered:
+		if offered not in self._policy.known or offered in self._tried:
 			return False
+		self._tried.add(offered)
 		self._loaded[key_type] = offered
 		self._write()
 		return True

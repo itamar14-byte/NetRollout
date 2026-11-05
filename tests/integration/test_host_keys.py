@@ -333,3 +333,18 @@ def test_inventory_marks_a_device_whose_key_was_refused(client_for, operator, ma
 	page = client_for(operator.user).get("/inventory").get_data(as_text=True)
 	assert page.count('class="key-refused-badge"') == 1
 	assert str(other) in page
+
+
+def test_after_the_old_key_is_removed_the_refused_one_is_learned(app, session_scope, make_user, checking):
+	"""A refused key B, then the admin removes the old A instead of
+	accepting B: the next connection learns, and B (still a refused row)
+	becomes the accepted key - audited, the refusal gone."""
+	store(session_scope, "10.0.0.1:22", KEY_A)
+	store(session_scope, "10.0.0.1:22", KEY_B, state="refused")
+	with session_scope() as s:
+		HostKeys(s).remove(s.query(HostKey).filter_by(key=KEY_A).one().id)
+	policy = app.host_keys.policy("10.0.0.1:22", Actor(make_user(username="dana").id, "dana"), "rollout")
+	assert policy.learn is True
+	policy.seen(KEY_B)
+	assert [(k, st) for _, k, st, _ in rows(session_scope)] == [(KEY_B, "accepted")]
+	assert [a[1] for a in audits(session_scope, "host_key.learned")] == ["10.0.0.1:22"]

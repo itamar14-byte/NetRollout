@@ -18,7 +18,8 @@ import netmiko
 
 from src.rollout.address import is_ip, resolve
 from src.rollout.evidence import Outcome, judge, parse
-from src.rollout.host_keys import REFUSED_REASON, HostKeyCheck, HostKeyRefused, refused_key, shown_key
+from src.rollout.host_keys import (REFUSED_REASON, UNSETTLED_REASON, HostKeyCheck, HostKeyRefused, refused_key,
+                                   shown_key)
 from src.rollout.log import Tone, redact
 from src.rollout.platforms import (
 	COMMIT_TIMEOUT, DEFAULTS_MAX_LINES, PLATFORMS, QUIET, CommitPending, ConfigSession, EnableFailed, Platform,
@@ -174,6 +175,8 @@ def _connect(device: Device, **extra: Any) -> Any:
 					raise
 				if check.alternative(offered):
 					continue
+				if offered in policy.known:     # an accepted key, each tried: the units took turns
+					raise ConnectionError(f"{device.endpoint}: {UNSETTLED_REASON}") from e
 				if policy.refused:
 					policy.refused(offered)
 				raise HostKeyRefused(device.endpoint, offered) from e

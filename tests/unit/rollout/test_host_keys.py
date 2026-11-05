@@ -16,9 +16,10 @@ import netmiko
 import paramiko
 import pytest
 
-from src.rollout.engine import Device
-from src.rollout.host_keys import (OFF, HostKeyCheck, HostKeyPolicy, HostKeyRefused, fingerprint, key_line,
-                                   known_hosts_name, refused_key)
+from src.rollout.engine import Device, RolloutEngine, RolloutOptions
+from src.rollout.host_keys import (OFF, REFUSED_REASON, HostKeyCheck, HostKeyPolicy, HostKeyRefused, fingerprint,
+                                   key_line, known_hosts_name, refused_key)
+from src.rollout.log import RolloutLogger
 from src.rollout.session import connect_unknown
 
 RSA_A = paramiko.RSAKey.generate(1024)
@@ -149,7 +150,7 @@ def test_a_changed_key_is_refused_before_the_password_is_sent(server):
 	assert error.value.offered == key_line(RSA_B)
 	assert str(error.value) == (f"127.0.0.1:{server.port}: its SSH host key changed - not signed in to, nothing "
 	                            f"was sent. If the device was replaced, an admin accepts its new key in Server "
-	                            f"Management -> Host keys.")
+	                            f"Management -> SSH Host Keys.")
 
 
 def test_a_key_of_another_type_is_refused_too(server):
@@ -229,3 +230,39 @@ def test_learning_or_off_add_no_file():
 
 def test_the_fingerprint_is_openssh_s():
 	assert fingerprint(key_line(RSA_A)) == RSA_A.fingerprint
+
+
+def test_ha_units_answering_in_turn_dont_keep_it_retrying(server):
+	"""A round-robin address: each connection reaches the other unit. Each
+	accepted key is tried once, then it stops - no password sent, no loop."""
+	keys = [RSA_B, RSA_A]
+	original = server._session
+
+	def turns(sock):
+		server.key = keys[len(turns.seen) % 2]
+		turns.seen.append(server.key)
+		original(sock)
+
+	turns.seen = []
+	server._session = turns
+	with patch("netmiko.ConnectHandler", wraps=netmiko.ConnectHandler) as handler:
+		with pytest.raises(ConnectionError, match="its HA units answered in turn"):
+			connect(device(server, HostKeyPolicy(known=(key_line(RSA_A), key_line(RSA_B)))))
+	assert handler.call_count == 2
+	assert server.passwords == []
+
+
+def test_a_rollout_skips_a_device_whose_key_changed(server):
+	"""Through the engine, as a web rollout runs it: the device's connection
+	loads its accepted key, the changed key is refused, nothing is pushed,
+	and the run says ACTION NEEDED with why."""
+	server.key = RSA_B
+	dev = device(server, HostKeyPolicy(known=(key_line(RSA_A),)))
+	engine = RolloutEngine(RolloutOptions(max_workers=1), [dev], ["hostname r9"])
+	logger = RolloutLogger(webapp=False, verbose=False)
+	with patch("netmiko.ConnectHandler", wraps=netmiko.ConnectHandler) as handler:
+		cancelled, results = engine._push_config(threading.Event(), logger)
+	assert handler.call_args.kwargs["ssh_strict"] is True and handler.call_args.kwargs["alt_key_file"]
+	assert (cancelled, results[0].applied) == (False, False)
+	assert engine._report.needs_action == {dev.endpoint: [REFUSED_REASON]}
+	assert server.passwords == []
