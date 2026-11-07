@@ -89,7 +89,7 @@ packaging==26.3
     # via
     #   -r requirements.in
     #   limits
-paramiko==4.0.0
+paramiko==5.0.0
     # via
     #   -r requirements.in
     #   netmiko
